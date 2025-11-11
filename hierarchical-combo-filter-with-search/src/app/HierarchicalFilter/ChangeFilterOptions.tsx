@@ -1,9 +1,8 @@
 import { IconButton, Space } from '@looker/components';
 import { FilterAlt, FilterList } from '@styled-icons/material';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 
 export const ChangeFilterOptions = () => {
-    const router = useRouter();
     const params = useSearchParams();
     const toggleParam = (
         param: 'show_filters' | 'show_dashboard_parameter'
@@ -14,12 +13,6 @@ export const ChangeFilterOptions = () => {
         } else {
             searchParams[param] = 'true';
         }
-        // router.push(
-        //     `${window.location.href.split('?')[0]}?${new URLSearchParams(
-        //         searchParams
-        //     ).toString()}`,
-        //     {}
-        // );
         window.open(
             `${window.location.href.split('?')[0]}?${new URLSearchParams(
                 searchParams
