@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@looker/icons": "^1.5.21",
+    "@styled-icons/material": "^10.47.0"
+  }
+}
