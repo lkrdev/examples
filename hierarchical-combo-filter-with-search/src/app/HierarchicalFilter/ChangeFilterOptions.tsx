@@ -24,10 +24,14 @@ export const ChangeFilterOptions = () => {
     return (
         <Space className="buttons" alignSelf="center" gap="none">
             <IconButton
+                toggleColor="key"
+                toggle={params.get('show_filters') === 'true'}
                 icon={<FilterAlt />}
                 onClick={() => toggleParam('show_filters')}
             />
             <IconButton
+                toggleColor="key"
+                toggle={params.get('show_dashboard_parameter') === 'true'}
                 icon={<FilterList />}
                 onClick={() => toggleParam('show_dashboard_parameter')}
             />

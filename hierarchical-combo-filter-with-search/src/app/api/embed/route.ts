@@ -30,7 +30,6 @@ export async function GET(request: NextRequest) {
                 session_length: 60 * 60 * 24 * 30, // 30 days
             })
         );
-        console.log(embed_url);
 
         const response = NextResponse.json(embed_url);
 

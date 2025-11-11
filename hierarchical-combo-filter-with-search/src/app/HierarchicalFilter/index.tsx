@@ -116,9 +116,6 @@ const HierarchicalFilter: React.FC = () => {
                 .on('dashboard:loaded', (e: DashboardEvent) => {
                     console.log(e);
                 })
-                .on('page:changed', (event) => {
-                    console.log(event);
-                })
                 .build()
                 .connect({ waitUntilLoaded: true })
                 .then((connection: ILookerConnection) => {
@@ -128,7 +125,6 @@ const HierarchicalFilter: React.FC = () => {
                     console.error('Error embedding dashboard:', error.message);
                 });
         }
-
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
