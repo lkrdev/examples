@@ -5,7 +5,6 @@ import {
     Popover,
     PopoverContent,
     PopoverFooter,
-    PopoverHeader,
 } from '@looker/components';
 import { FilterList, Search } from '@styled-icons/material';
 import React, { useEffect, useState } from 'react';
