@@ -57,8 +57,9 @@ const HierarchicalFilter: React.FC = () => {
         mounted.setTrue();
         // eslint-disable-next-line
     }, []);
+    const api_url = `${process.env.NEXT_PUBLIC_API_URL || ''}`;
     const search_results = useSWR(
-        `/api/filters?q=${debounced_search}`,
+        `${api_url}/api/filters?q=${debounced_search}`,
         (url: string) =>
             fetch(url).then((res) => res.json()) as Promise<IHierarchyValues[]>
     );
@@ -82,7 +83,10 @@ const HierarchicalFilter: React.FC = () => {
                 return;
             }
             const embed_sdk = getEmbedSDK();
-            embed_sdk.init(lookerHostUrl, '/api/embed');
+            const api_url = `${
+                process.env.NEXT_PUBLIC_API_URL || ''
+            }/api/embed`;
+            embed_sdk.init(lookerHostUrl, api_url);
 
             embed_sdk
                 .createDashboardWithId('126')
