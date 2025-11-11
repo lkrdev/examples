@@ -1,0 +1,21 @@
+name: Merge to Main
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "read"
+      id-token: "write"
+
+    steps:
+
+      - name: Trigger Website Deploy
+        run: |
+          curl -fSL "$DEPLOY_URL"
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}

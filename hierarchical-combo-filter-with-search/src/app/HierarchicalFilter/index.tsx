@@ -16,10 +16,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import useSWR from 'swr';
 import { useBoolean, useDebounceValue } from 'usehooks-ts';
+import { useSearchParams } from 'next/navigation';
 import { IHierarchyValues } from '../api/filters/route';
 import CheckboxPopover from './CheckboxPopover';
 import { createDashboardParameterValue, toggleSelection } from './handleToggle';
 import Image from 'next/image';
+import { ChangeFilterOptions } from './ChangeFilterOptions';
 
 const DASHBOARD_PARAMETER = 'Hierarchical Filter';
 const HIDE_FILTERS = ['Category', 'Brand', 'Item Name'];
@@ -43,6 +45,15 @@ const StyledBox = styled(Box)`
     }
 `;
 
+const StyledSpace = styled(Space)`
+    & > .buttons {
+        visibility: hidden;
+    }
+    &:hover > .buttons {
+        visibility: visible;
+    }
+`;
+
 const HierarchicalFilter: React.FC = () => {
     const mounted = useBoolean(false);
     const [connection, setConnection] = useState<ILookerConnection | null>(
@@ -52,6 +63,7 @@ const HierarchicalFilter: React.FC = () => {
     const [selections, setSelections] = useState<string[][]>([]);
     const popover_open = useBoolean(false);
     const spaceRef = useRef<HTMLDivElement>(null);
+    const query_params = Object.fromEntries(useSearchParams().entries());
 
     useEffect(() => {
         mounted.setTrue();
@@ -90,7 +102,16 @@ const HierarchicalFilter: React.FC = () => {
 
             embed_sdk
                 .createDashboardWithId('126')
-                .withParams(hideDashboardFilters(false, true))
+                .withParams({
+                    ...hideDashboardFilters(
+                        query_params.show_filters !== 'true',
+                        query_params.show_dashboard_parameter !== 'true'
+                    ),
+                    _theme: JSON.stringify({
+                        show_title: false,
+                        background_color: '#fff',
+                    }),
+                })
                 .appendTo(el)
                 .on('dashboard:loaded', (e: DashboardEvent) => {
                     console.log(e);
@@ -107,6 +128,8 @@ const HierarchicalFilter: React.FC = () => {
                     console.error('Error embedding dashboard:', error.message);
                 });
         }
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleToggle = (path: string[]) => {
@@ -131,15 +154,18 @@ const HierarchicalFilter: React.FC = () => {
 
     return (
         <SpaceVertical gap="small" flexGrow={1}>
-            <Space align="self-start">
+            <StyledSpace align="self-start">
                 <Image
                     src="https://www.lkr.dev/img/lkr-dev-logo-light.svg"
                     alt="LKR Dev Logo"
                     width={404 / 4}
                     height={119 / 4}
                 />
-                <Heading>Hierarchical Combo Filter with Search Example</Heading>
-            </Space>
+                <Heading width="100%" style={{ whiteSpace: 'nowrap' }}>
+                    Hierarchical Combo Filter with Search Example
+                </Heading>
+                <ChangeFilterOptions />
+            </StyledSpace>
             <StyledCard flexGrow={1}>
                 <Space ref={spaceRef} gap="xsmall" padding="xsmall">
                     <CheckboxPopover
