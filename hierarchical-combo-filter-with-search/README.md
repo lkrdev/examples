@@ -1,6 +1,6 @@
 # Hierarchical Combo Filter with Search Example
 
-This is an example of embedding Looker and creating a custom hierarchical filter component that interacts with the Looker iframe. The example showcases how to pull data from the Looker API using the Node SDK, modifying the API request to provide advanced searching functionalty and applying a custom component to the embedded Looker dashboard.
+This is an example of embedding Looker and creating a custom hierarchical filter component that interacts with the Looker iframe. The example showcases how to pull data from the Looker API using the Node SDK, modifying the API request to provide advanced search functionality and applying a custom component to the embedded Looker dashboard.
 
 ![Hierarchical Combo Filter with Search Example](/assets/hierarchical-combo-filter-with-search.png)
 
@@ -16,12 +16,12 @@ This is an example of embedding Looker and creating a custom hierarchical filter
 ## Embed SDK
 
 **Updating Iframe with Javascript events**
-This example uses Looker's [Javascript Events](https://docs.cloud.google.com/looker/docs/embedded-javascript-events) in order to facilitate an external filter
+This example uses Looker's [Javascript Events](https://docs.cloud.google.com/looker/docs/embedded-javascript-events) in order to facilitate an external filter.
 
 -   Mapping the hierarchy selection to proper dashboard parameter value
 
 ```typescript
-// connections ir the SDK representation of a conencted iframe with its helper methods.
+// connection is the SDK representation of a connected iframe with its helper methods.
 const dashboard_connection = connection.asDashboardConnection();
 dashboard_connection.updateFilters({ Hierarchical Filter: 'Brand: Calvin Klein, Category: Jeans' });
 dashboard_connection.run();
@@ -31,13 +31,13 @@ dashboard_connection.run();
 
 ### Custom Filters and Looker Expressions
 
-Looker [filter expressions](https://docs.cloud.google.com/looker/docs/filter-expressions) are a powerful way to filter queries in Looker. They allows the developer to write complex filters using Looker's DSL.
+Looker [filter expressions](https://docs.cloud.google.com/looker/docs/filter-expressions) are a powerful way to filter queries in Looker. They allow the developer to write complex filters using Looker's DSL.
 
 ```
 matches_filter(${products.brand}, `%Calvin%`) OR matches_filter(${products.category}, `%Jeans%`) OR ( matches_filter(${products.brand}, `%Calvin%`) AND matches_filter(${products.category}, `%Jeans%`) )
 ```
 
-## LookML examples
+## LookML Examples
 
 -   Comprehensive field searching `case_sensitive: no` [docs](https://docs.cloud.google.com/looker/docs/reference/param-field-case-sensitive)
 
