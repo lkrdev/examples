@@ -143,9 +143,14 @@ export const createDashboardParameterValue = (
     selections: TSelections,
     dashboard_parameter: string,
     value_seperator: string = '..',
-    hierarchy_seperator: string = '__'
+    hierarchy_seperator: string = '__',
+    space_seperator: string = '$'
 ) => {
-    const values = selections.map((path) => path.join(hierarchy_seperator));
+    const values = selections.map((path) =>
+        path
+            .map((p) => p.replace(/[^a-zA-Z0-9]/g, space_seperator))
+            .join(hierarchy_seperator)
+    );
     const value = values.join(value_seperator);
     return {
         [dashboard_parameter]: value,

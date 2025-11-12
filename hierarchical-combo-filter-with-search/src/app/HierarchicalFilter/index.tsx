@@ -64,6 +64,7 @@ const HierarchicalFilter: React.FC = () => {
     const popover_open = useBoolean(false);
     const spaceRef = useRef<HTMLDivElement>(null);
     const query_params = Object.fromEntries(useSearchParams().entries());
+    const connected_ref = useRef<boolean>(false);
 
     useEffect(() => {
         mounted.setTrue();
@@ -99,7 +100,10 @@ const HierarchicalFilter: React.FC = () => {
                 process.env.NEXT_PUBLIC_API_URL || ''
             }/api/embed`;
             embed_sdk.init(lookerHostUrl, api_url);
-
+            if (!connected_ref.current) {
+                connected_ref.current = true;
+                return;
+            }
             embed_sdk
                 .createDashboardWithId('126')
                 .withParams({
@@ -129,7 +133,9 @@ const HierarchicalFilter: React.FC = () => {
     }, []);
 
     const handleToggle = (path: string[]) => {
-        setSelections((prev) => toggleSelection(prev, path));
+        const new_selections = toggleSelection(selections, path);
+        setSelections(new_selections);
+        updateDashboardFilters(new_selections);
     };
 
     const updateDashboardFilters = async (filters: string[][]) => {

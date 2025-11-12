@@ -89,4 +89,34 @@ describe('createDashboardParameterValue', () => {
         );
         expect(result2).toEqual(expected2);
     });
+    it('should handle spaces in the value_seperator', () => {
+        const selections: TSelections = [['1 2', '2'], ['1 2', '3'], ['3']];
+        const dashboard_parameter = 'A';
+        const expected = {
+            A: '1$2__2..1$2__3..3',
+        };
+        const result = createDashboardParameterValue(
+            selections,
+            dashboard_parameter,
+            '..',
+            '__',
+            '$'
+        );
+        expect(result).toEqual(expected);
+    });
+    it('should handle non alphanumeric characters and make them spaces', () => {
+        const selections: TSelections = [['1 2', '2'], ['1@4', '3'], ['%4']];
+        const dashboard_parameter = 'A';
+        const expected = {
+            A: '1$2__2..1$4__3..$4',
+        };
+        const result = createDashboardParameterValue(
+            selections,
+            dashboard_parameter,
+            '..',
+            '__',
+            '$'
+        );
+        expect(result).toEqual(expected);
+    });
 });
