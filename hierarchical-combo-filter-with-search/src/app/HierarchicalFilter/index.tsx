@@ -22,6 +22,7 @@ import CheckboxPopover from './CheckboxPopover';
 import { createDashboardParameterValue, toggleSelection } from './handleToggle';
 import Image from 'next/image';
 import { ChangeFilterOptions } from './ChangeFilterOptions';
+import Link from 'next/link';
 
 const DASHBOARD_PARAMETER = 'Hierarchical Filter';
 const HIDE_FILTERS = ['Category', 'Brand', 'Item Name'];
@@ -157,12 +158,15 @@ const HierarchicalFilter: React.FC = () => {
     return (
         <SpaceVertical gap="small" flexGrow={1}>
             <StyledSpace align="self-start">
-                <Image
-                    src="https://www.lkr.dev/img/lkr-dev-logo-light.svg"
-                    alt="LKR Dev Logo"
-                    width={404 / 4}
-                    height={119 / 4}
-                />
+                <Link href="https://www.lkr.dev" target="_blank">
+                    {' '}
+                    <Image
+                        src="https://www.lkr.dev/img/lkr-dev-logo-light.svg"
+                        alt="LKR Dev Logo"
+                        width={404 / 4}
+                        height={119 / 4}
+                    />
+                </Link>
                 <Heading width="100%" style={{ whiteSpace: 'nowrap' }}>
                     Hierarchical Combo Filter with Search Example
                 </Heading>
