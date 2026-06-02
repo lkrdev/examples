@@ -6,7 +6,9 @@
 # ///
 import argparse
 import json
+
 import looker_sdk
+
 
 def main():
     parser = argparse.ArgumentParser(description="db-no-results-layout-filter")
@@ -17,22 +19,22 @@ def main():
     looker_user_id = args.looker_user_id
     dashboard_template_id = args.dashboard_template_id
 
-    print("Initializing Looker SDK...")
     sdk = looker_sdk.init40()
 
     # =========================================================================
     # Step 1: Resolve Target User's Personal Workspace
-    # =========================================================================
+    # ======P===================================================================
     # We query the User API to discover the unique personal folder ID for the
     # target user. This acts as our target directory where the copied dashboard
     # will reside. We fall back to home_folder_id if personal_folder_id is missing.
-    print(f"Retrieving personal folder for user ID: {looker_user_id}...")
     try:
         user = sdk.user(user_id=looker_user_id, fields="personal_folder_id,home_folder_id")
         personal_folder_id = user.personal_folder_id or user.home_folder_id
         if not personal_folder_id:
             raise ValueError(f"Could not find a personal or home folder for user ID {looker_user_id}")
-        print(f"Found user's personal space: Folder ID {personal_folder_id}")
+        print(
+            f"Found user's ({looker_user_id}) personal folder: Folder ID {personal_folder_id}"
+        )
     except Exception as e:
         print(f"Error retrieving user: {e}")
         return
@@ -42,13 +44,14 @@ def main():
     # =========================================================================
     # We read the metadata of the template dashboard to determine its official
     # title. This title is used to search for and prune duplicates in the user's folder.
-    print(f"Retrieving template dashboard: ID {dashboard_template_id}...")
     try:
         template_dash = sdk.dashboard(dashboard_id=dashboard_template_id, fields="title")
         template_title = template_dash.title or "Untitled Template"
-        print(f"Template dashboard title: '{template_title}'")
+        print(
+            f"Template dashboard title: '{template_title}' (ID: {dashboard_template_id})"
+        )
     except Exception as e:
-        print(f"Error retrieving template dashboard: {e}")
+        print(f"Error retrieving template dashboard (ID: {dashboard_template_id}): {e}")
         return
 
     # =========================================================================
@@ -57,7 +60,6 @@ def main():
     # To prevent cluttering the user's space on repeat runs, we search the
     # user's personal folder for any existing dashboard sharing the exact same
     # title. If found, we delete it before creating the fresh copy.
-    print(f"Searching for existing dashboards with title '{template_title}' in Folder {personal_folder_id}...")
     try:
         existing_dashboards = sdk.search_dashboards(folder_id=personal_folder_id, title=template_title)
         for dash in existing_dashboards:
@@ -79,10 +81,7 @@ def main():
         new_dash_id = str(new_dash.id)
         print(f"Successfully copied to new dashboard ID: {new_dash_id}")
 
-        sdk.update_dashboard(
-            dashboard_id=new_dash_id,
-            body={"user_id": looker_user_id}  # type: ignore
-        )
+        sdk.update_dashboard(dashboard_id=new_dash_id, body={"user_id": looker_user_id})
         print(f"Assigned ownership of dashboard {new_dash_id} to user ID {looker_user_id}")
     except Exception as e:
         print(f"Error copying dashboard: {e}")
@@ -105,11 +104,9 @@ def main():
 
             for i, element in enumerate(elements):
                 if not element.result_maker or not element.result_maker.query:
-                    print(f"  Tile {i+1}: '{element.title or 'Untitled'}' (no query definition, skipping)")
                     continue
 
                 query = element.result_maker.query
-                print(f"  Checking tile {i+1}: '{element.title or 'Untitled'}' (Query ID: {query.id})...")
 
                 query_payload = {
                     "model": query.model,
@@ -131,7 +128,7 @@ def main():
                 }
                 cleaned_payload = {k: v for k, v in query_payload.items() if v is not None}
 
-                new_query = sdk.create_query(body=cleaned_payload)  # type: ignore
+                new_query = sdk.create_query(body=cleaned_payload)
                 result = sdk.run_query(query_id=str(new_query.id), result_format="json")
                 
                 rows = json.loads(result)
