@@ -13,7 +13,7 @@ The file `long-metrics.view.lkml` implements a long-table format (narrow format)
 
 - **Base Fields & Aggregation Views**: Views with `extension: required` (like `base_fields`, `day_agg_fields`) are used to share common fields across different aggregation levels.
 - **Metric Specific Views**: Views like `metric_total_sale_price` compute window functions (running totals, rolling averages) over an explore source (`order_items`).
-- **Combined View**: `combined_metrics_day` uses a derived table with a series of `UNION ALL` queries to stack data for different metrics and timeframes into a single table. This view handles measures by filtering on a `metric` dimension.
+- **Combined View**: `long_metrics` uses a derived table with a series of `UNION ALL` queries to stack data for different metrics and timeframes into a single table. This view handles measures by filtering on a `metric` dimension.
 
 ---
 
@@ -34,12 +34,12 @@ If you want to add a new dimension (e.g., `category` from the `products` view, w
      ```lookml
      dimension: category { type: string }
      ```
-3. **Update the Combined View** (`combined_metrics_day`):
+3. **Update the Combined View** (`long_metrics`):
    - In the `derived_table` block, update **all** the `SELECT` statements in the `UNION ALL` query to include the new column. Ensure you maintain column order across all branches of the UNION.
      ```sql
      SELECT source, product_id, category, row_count, dt, month, quarter, year, r7d as value, ...
      ```
-   - Add the dimension definition in the `combined_metrics_day` view.
+   - Add the dimension definition in the `long_metrics` view.
      ```lookml
      dimension: category {}
      ```
@@ -54,14 +54,14 @@ To add a new measure that follows this pattern (e.g., `total_gross_margin`):
      ```lookml
      column: value { field: order_items.total_gross_margin }
      ```
-2. **Update the Combined View** (`combined_metrics_day`):
+2. **Update the Combined View** (`long_metrics`):
    - In the `derived_table` block, add a new set of `UNION ALL` branches that select from the new metric view.
    - Hardcode the metric name as `'Total Gross Margin'` in the SELECT list.
      ```sql
      UNION ALL
      SELECT source, product_id, row_count, dt, month, quarter, year, r7d as value, 'r7d' as timeframe, 'Total Gross Margin' as metric, 'calculated' as calculated_view FROM ${metric_total_gross_margin.SQL_TABLE_NAME}
      ```
-3. **Define the Measure in `combined_metrics_day`**:
+3. **Define the Measure in `long_metrics`**:
    - Add a new measure that sums the `value` column and applies a filter for this specific metric.
      ```lookml
      measure: total_gross_margin {
@@ -73,11 +73,11 @@ To add a new measure that follows this pattern (e.g., `total_gross_margin`):
 
 ### Post-Aggregation Calculations
 
-For non-additive calculations that cannot be pre-aggregated (e.g., percentages or ratios like `gross_margin_percentage`), you should add them as new measures in the combined view (`combined_metrics_day`) using a measure of `type: number`.
+For non-additive calculations that cannot be pre-aggregated (e.g., percentages or ratios like `gross_margin_percentage`), you should add them as new measures in the combined view (`long_metrics`) using a measure of `type: number`.
 
 ### How to Add a Post-Aggregation Measure
 
-1. **Ensure Component Measures Exist**: Make sure the component metrics are already defined as filtered sum measures in the `combined_metrics_day` view. For example:
+1. **Ensure Component Measures Exist**: Make sure the component metrics are already defined as filtered sum measures in the `long_metrics` view. For example:
    ```lookml
    measure: total_sale_price {
      type: sum
@@ -102,7 +102,7 @@ For non-additive calculations that cannot be pre-aggregated (e.g., percentages o
 
 ### Period Alignment and Conditional Filtering
 
-In the `combined_metrics_day` explore, we use specific Liquid logic to manage the Period alignment pattern.
+In the `long_metrics` explore, we use specific Liquid logic to manage the Period alignment pattern.
 
 #### Dynamic Source Filtering
 
@@ -115,7 +115,7 @@ This binds the `source_parameter` (a Looker parameter) to the `${source}` dimens
 #### Default Period Filtering
 
 ```sql
-{% if combined_metrics_day.current_period._is_filtered or combined_metrics_day.current_period._is_selected %}
+{% if long_metrics.current_period._is_filtered or long_metrics.current_period._is_selected %}
   1=1
 {% else %}
   ${current_period} = 'Current'
@@ -131,13 +131,13 @@ This logic manages the visibility of historical "anchored" rows:
 
 ### Adding Quick Start Queries to the Explore
 
-To make it easy for users to consume these stacked metrics, define pre-configured `query` blocks (Quick Start queries) within the `explore: combined_metrics_day` definition. 
+To make it easy for users to consume these stacked metrics, define pre-configured `query` blocks (Quick Start queries) within the `explore: long_metrics` definition. 
 
 When you add a new metric, timeframe, or slice, consider adding or updating a corresponding Quick Start query in the explore:
 
 1. **Syntax**:
    ```lookml
-   explore: combined_metrics_day {
+   explore: long_metrics {
      # ...
      query: query_name {
        label: "User Friendly Label"
@@ -145,9 +145,9 @@ When you add a new metric, timeframe, or slice, consider adding or updating a co
        dimensions: [dimension_1, dimension_2]
        measures: [measure_1, measure_2]
        filters: [
-         combined_metrics_day.timeframe: "desired_timeframe",
-         combined_metrics_day.source_parameter: "desired_source",
-         combined_metrics_day.current_period: "Current"
+         long_metrics.timeframe: "desired_timeframe",
+         long_metrics.source_parameter: "desired_source",
+         long_metrics.current_period: "Current"
        ]
      }
    }
@@ -163,7 +163,7 @@ To prevent this:
 1. **Use `always_filter` in the Explore**:
    Ensure the explore definition requires default filters for the critical stacked dimensions:
    ```lookml
-   explore: combined_metrics_day {
+   explore: long_metrics {
      always_filter: {
        filters: [
          source_parameter: "Daily Actual",
@@ -176,7 +176,7 @@ To prevent this:
    For dimensions that control period alignment (like `current_period`), use conditional Liquid logic to default to the current period unless the user explicitly filters or selects the comparison period:
    ```lookml
    sql_always_where: 
-     {% if combined_metrics_day.current_period._is_filtered or combined_metrics_day.current_period._is_selected %}
+     {% if long_metrics.current_period._is_filtered or long_metrics.current_period._is_selected %}
        1=1
      {% else %}
        ${current_period} = 'Current'

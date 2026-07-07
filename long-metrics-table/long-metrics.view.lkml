@@ -278,15 +278,15 @@ view: metric_total_gross_margin_quarter_aggregated {
   }
 }
 
-explore: combined_metrics_day {
-  label: "Combined Metrics"
-  join: dim_products { sql_on: ${dim_products.id} = ${combined_metrics_day.product_id} ;; }
+explore: long_metrics {
+  label: "Long Metrics"
+  join: dim_products { sql_on: ${dim_products.id} = ${long_metrics.product_id} ;; }
 
   always_filter: { filters: [source_parameter: "Daily Actual", timeframe: "current_view"]}
   sql_always_where: 
     {% condition source_parameter %} ${source} {% endcondition %}
     AND
-    {% if combined_metrics_day.current_period._is_filtered or combined_metrics_day.current_period._is_selected %}
+    {% if long_metrics.current_period._is_filtered or long_metrics.current_period._is_selected %}
       1=1
     {% else %}
       ${current_period} = 'Current'
@@ -299,24 +299,24 @@ explore: combined_metrics_day {
     dimensions: [dim_products.category]
     measures: [total_sale_price]
     filters: [
-      combined_metrics_day.timeframe: "r7d",
-      combined_metrics_day.source_parameter: "Daily Actual",
-      combined_metrics_day.current_period: "Current"
+      long_metrics.timeframe: "r7d",
+      long_metrics.source_parameter: "Daily Actual",
+      long_metrics.current_period: "Current"
     ]
   }
 
   query: monthly_ytd_metrics_comparison {
     label: "YTD Metrics Comparison (Current vs Last Year)"
     description: "Compares YTD Total Sale Price and Gross Margin between Current and Last Year."
-    dimensions: [combined_metrics_day.month, combined_metrics_day.current_period]
+    dimensions: [long_metrics.month, long_metrics.current_period]
     measures: [total_sale_price, total_gross_margin]
     filters: [
-      combined_metrics_day.timeframe: "ytd",
-      combined_metrics_day.source_parameter: "Daily Actual"
+      long_metrics.timeframe: "ytd",
+      long_metrics.source_parameter: "Daily Actual"
     ]
   }
 }
-view: combined_metrics_day {
+view: long_metrics {
   extends: [base_fields, booleans]
   derived_table: {
     persist_for: "24 hours"
@@ -514,7 +514,7 @@ view: combined_metrics_day {
     type: number
     sql: ${total_gross_margin} / NULLIF(${total_sale_price}, 0) ;;
     value_format_name: percent_2
-    view_label: "Combined Metrics Day"
+    view_label: "Long Metrics"
   }
 }
 

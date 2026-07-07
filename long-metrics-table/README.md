@@ -34,7 +34,7 @@ graph TD
 | :------------------------- | :------------------------------------------------------------------- | :-------------------------------------------------- | :-------------------------------------------------------- | :---------------------------------------------------------------------------------- |
 | **1. Raw Tables**          | Transactional / Normalized tables in the database.                   | Storage of truth, granular tracking.                | DBAs, Data Engineers                                      | `order_items` (order_id, product_id, sale_price, created_at)                        |
 | **2. LookML Explores**     | Normalized relationships, joins, and declarative measures.           | Clean business logic definition, ad-hoc queries.    | BI Developers, Data Analysts, Power Users                 | `explore: order_items { join: products {...} }` with measures like `sum_sale_price` |
-| **3. Long Metrics Layout** | Denormalized, pre-aggregated, unpivoted (stacked) key-value records. | Simplified, static slices for external consumption. | Finance Teams, Spreadsheet Users (via Coefficient/Sheets) | `combined_metrics_day` (date, category, metric, timeframe, value)                   |
+| **3. Long Metrics Layout** | Denormalized, pre-aggregated, unpivoted (stacked) key-value records. | Simplified, static slices for external consumption. | Finance Teams, Spreadsheet Users (via Coefficient/Sheets) | `long_metrics` (date, category, metric, timeframe, value)                           |
 
 ---
 
@@ -63,7 +63,7 @@ In a long metrics layout, everything is stacked, and timeframes/metrics are simp
 ## File Structure
 
 - [.agents/skills/long-metrics-table/SKILL.md](.agents/skills/long-metrics-table/SKILL.md): Agent skill and detailed guide on how to add new metrics, dimensions, and post-aggregation calculations to this setup.
-- [long-metrics.view.lkml](long-metrics.view.lkml): Core LookML view containing the base aggregation fields, metric-specific SQL window functions, and the final stacked `combined_metrics_day` view using `UNION ALL`.
+- [long-metrics.view.lkml](long-metrics.view.lkml): Core LookML view containing the base aggregation fields, metric-specific SQL window functions, and the final stacked `long_metrics` view using `UNION ALL`.
 - [thelook.model.lkml](thelook.model.lkml): Model file defining the `order_items` explore used as the source for metrics.
 
 ---
