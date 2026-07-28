@@ -1,0 +1,260 @@
+swagger: '2.0'
+info:
+  title: Looker MCP & AI Agents Connector
+  description: Encapsulated Custom Connector for Looker MCP tools/list and Looker
+    AI Agent/Conversation endpoints using OAuth 2.0.
+  version: 1.0.0
+host: your-instance.cloud.looker.com
+basePath: /
+schemes:
+- https
+consumes:
+- application/json
+produces:
+- application/json
+securityDefinitions:
+  oauth2_auth:
+    type: oauth2
+    flow: accessCode
+    authorizationUrl: https://your-instance.cloud.looker.com/oauth/authorize
+    tokenUrl: https://your-instance.cloud.looker.com/oauth/token
+    scopes: {}
+security:
+- oauth2_auth: []
+x-ms-connection-parameters: {}
+paths:
+  /mcp:
+    post:
+      summary: Execute Looker MCP
+      description: Executes Looker MCP tools using OAuth 2.0 access token.
+      operationId: ExecuteUserMcp
+      parameters:
+      - name: body
+        in: body
+        required: false
+        x-ms-summary: Raw Body
+        x-ms-visibility: advanced
+        schema:
+          type: object
+      responses:
+        '200':
+          description: Successful MCP Response
+  /api/4.0/user:
+    get:
+      summary: Get Current User
+      description: Retrieves details of the currently authenticated Looker user using
+        OAuth 2.0 access token.
+      operationId: GetCurrentUser
+      x-ms-summary: Get Current User
+      x-ms-visibility: important
+      parameters:
+      - name: fields
+        in: query
+        type: string
+        required: false
+        description: Requested fields
+        x-ms-summary: Fields
+      responses:
+        '200':
+          description: User Details
+  /api/4.0/agents/search:
+    get:
+      summary: List / Search Agents
+      description: Searches or lists Looker AI Agents using OAuth 2.0 access token.
+      operationId: SearchAgents
+      x-ms-summary: List / Search Agents
+      x-ms-visibility: advanced
+      parameters:
+      - name: name
+        in: query
+        type: string
+        required: false
+        description: Filter agent by name
+        x-ms-summary: Agent Name
+      - name: category
+        in: query
+        type: string
+        required: false
+        description: Filter agent by category
+        x-ms-summary: Category
+      - name: limit
+        in: query
+        type: integer
+        required: false
+        description: Number of results to return
+        x-ms-summary: Limit
+      responses:
+        '200':
+          description: List of Agents
+  /api/4.0/conversations/search:
+    get:
+      summary: Search Conversations
+      description: Searches or lists conversations using OAuth 2.0 access token.
+      operationId: SearchConversations
+      x-ms-summary: Search Conversations
+      x-ms-visibility: advanced
+      parameters:
+      - name: agent_id
+        in: query
+        type: string
+        required: false
+        description: Filter conversations by Agent ID
+        x-ms-summary: Agent ID
+      - name: limit
+        in: query
+        type: integer
+        required: false
+        description: Number of results to return
+        x-ms-summary: Limit
+      responses:
+        '200':
+          description: List of Conversations
+  /api/4.0/conversations:
+    post:
+      summary: Start Conversation
+      description: Starts a new conversation with an Agent using OAuth 2.0 access
+        token.
+      operationId: CreateConversation
+      x-ms-summary: Start Conversation
+      x-ms-visibility: advanced
+      parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/WriteConversation'
+      responses:
+        '200':
+          description: Created Conversation
+  /api/4.0/conversations/{conversation_id}:
+    get:
+      summary: Get Conversation
+      description: Gets conversation details by ID using OAuth 2.0 access token.
+      operationId: GetConversation
+      x-ms-summary: Get Conversation
+      x-ms-visibility: advanced
+      parameters:
+      - name: conversation_id
+        in: path
+        type: string
+        required: true
+        description: Target Conversation ID
+        x-ms-summary: Conversation ID
+      responses:
+        '200':
+          description: Conversation Details
+  /api/4.0/conversations/{conversation_id}/messages:
+    post:
+      summary: Post Conversation Message
+      description: Posts a new message to a conversation using OAuth 2.0 access token.
+      operationId: CreateConversationMessage
+      x-ms-summary: Post Conversation Message
+      x-ms-visibility: advanced
+      parameters:
+      - name: conversation_id
+        in: path
+        type: string
+        required: true
+        description: Target Conversation ID
+        x-ms-summary: Conversation ID
+      - name: body
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/WriteConversationMessages'
+      responses:
+        '200':
+          description: Created Message(s)
+    get:
+      summary: Get All Conversation Messages
+      description: Retrieves all messages in a conversation using OAuth 2.0 access
+        token.
+      operationId: GetAllConversationMessages
+      x-ms-summary: Get All Conversation Messages
+      x-ms-visibility: advanced
+      parameters:
+      - name: conversation_id
+        in: path
+        type: string
+        required: true
+        description: Target Conversation ID
+        x-ms-summary: Conversation ID
+      responses:
+        '200':
+          description: List of Conversation Messages
+  /api/4.0/conversational_analytics/chat:
+    post:
+      summary: Conversational Analytics Chat
+      description: Sends a message to a Looker AI agent conversation and receives
+        the generated response using OAuth 2.0 access token.
+      operationId: ConversationalAnalyticsChat
+      x-ms-summary: Conversational Analytics Chat
+      x-ms-visibility: advanced
+      parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/WriteConversationalChat'
+      responses:
+        '200':
+          description: Conversational Chat Response
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                description: Conversational agent response message
+                x-ms-summary: Message
+              response:
+                type: string
+                description: Conversational agent response message
+                x-ms-summary: Response
+definitions:
+  WriteConversationalChat:
+    type: object
+    properties:
+      conversation_id:
+        type: string
+        description: Target Conversation ID
+        x-ms-summary: Conversation ID
+      user_message:
+        type: string
+        description: The user prompt or question
+        x-ms-summary: User Message
+  WriteConversation:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Conversation Name
+        x-ms-summary: Conversation Name
+      agent_id:
+        type: string
+        description: Target Agent ID
+        x-ms-summary: Agent ID
+      category:
+        type: string
+        description: Conversation Category
+        x-ms-summary: Category
+  WriteConversationMessages:
+    type: object
+    properties:
+      messages:
+        type: array
+        x-ms-summary: Messages
+        items:
+          type: object
+          properties:
+            type:
+              type: string
+              example: user
+              x-ms-summary: Message Type
+            message:
+              type: object
+              x-ms-summary: Message Payload
+              properties:
+                text:
+                  type: string
+                  description: Message text
+                  x-ms-summary: Message Text

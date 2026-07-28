@@ -1,0 +1,24 @@
+{
+  "name": "oauth-2-access-token",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "looker-oauth": "./bin/cli.js"
+  },
+  "scripts": {
+    "prestart": "kill -9 $(lsof -t -i:3000 2>/dev/null) 2>/dev/null || true",
+    "start": "node --env-file=.env src/index.js",
+    "test": "node --env-file=.env --test test/*.test.js",
+    "setup": "node --env-file=.env bin/cli.js",
+    "looker:register-oauth": "node --env-file=.env scripts/register_oauth_client.js"
+  },
+  "dependencies": {
+    "@looker/sdk": "^26.12.0",
+    "@looker/sdk-node": "^26.12.0",
+    "express": "^5.2.1"
+  }
+}

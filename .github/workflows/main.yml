@@ -13,9 +13,36 @@ jobs:
       id-token: "write"
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Upload Generator Web App to GCS CDN
+        uses: google-github-actions/upload-cloud-storage@v2
+        with:
+          process_gcloudignore: false
+          path: power_platform_looker_mcp/index.html
+          destination: ${{ secrets.CDN_BUCKET_NAME }}/mcp
+          parent: false
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Invalidate Cloud CDN
+        run: |
+          gcloud compute url-maps invalidate-cdn-cache ${{ secrets.CDN_URL_MAP }} \
+            --project ${{ secrets.GCP_PROJECT_ID }} \
+            --path=/mcp/* \
+            --async
 
       - name: Trigger Website Deploy
         run: |
           curl -fSL "$DEPLOY_URL"
         env:
           DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+
