@@ -5,9 +5,7 @@ import { tokenManager } from '../tokenManager.js';
 
 const router = Router();
 
-// In-memory store for state tracking and authorization codes
-const oauthStateStore = new Map();
-const authCodes = new Map();
+
 /**
  * AES-256-GCM Encryption Helper using client_secret
  */
@@ -106,13 +104,15 @@ function validateClientCredentials(req) {
  */
 function isRedirectUriAllowed(redirectUri) {
   if (!config.allowedRedirectUris || config.allowedRedirectUris.length === 0) {
-    return true; // No restriction configured
+    return false;
   }
   if (!redirectUri) return false;
-  
+
   return config.allowedRedirectUris.some((allowed) => {
-    if (redirectUri === allowed) return true;
-    return redirectUri.startsWith(allowed + '/') || redirectUri.startsWith(allowed + '?');
+    const cleanAllowed = allowed.trim().replace(/[\r\n"']/g, '').replace(/\/+$/, '');
+    const cleanRedirect = redirectUri.trim().replace(/[\r\n"']/g, '').replace(/\/+$/, '');
+    if (cleanRedirect === cleanAllowed) return true;
+    return cleanRedirect.startsWith(cleanAllowed + '/') || cleanRedirect.startsWith(cleanAllowed + '?');
   });
 }
 
@@ -129,8 +129,7 @@ router.get('/oauth/authorize', async (req, res) => {
 
   // STEP 3: Handle Looker Callback whenever lookerCode is present
   if (lookerCode) {
-    const stateData = decryptPayload(internalState) || oauthStateStore.get(internalState) || {};
-    if (internalState) oauthStateStore.delete(internalState);
+    const stateData = decryptPayload(internalState) || {};
 
     const { codeVerifier, clientRedirectUri, clientState, callbackUrl: storedCallbackUrl } = stateData;
 
@@ -218,10 +217,6 @@ router.get('/oauth/authorize', async (req, res) => {
       looker_user_id: String(lookerUserId),
       createdAt: Date.now(),
     });
-    authCodes.set(serverCode, {
-      looker_user_id: String(lookerUserId),
-      createdAt: Date.now(),
-    });
 
     const targetRedirectUri = clientRedirectUri || (config.allowedRedirectUris && config.allowedRedirectUris[0]);
 
@@ -244,6 +239,13 @@ router.get('/oauth/authorize', async (req, res) => {
     return res.status(401).json({
       error: 'invalid_client',
       error_description: 'Client ID mismatch',
+    });
+  }
+
+  if (!config.allowedRedirectUris || config.allowedRedirectUris.length === 0) {
+    return res.status(500).json({
+      error: 'server_error',
+      error_description: 'ALLOWED_REDIRECT_URIS environment variable is not configured on the server.',
     });
   }
 
@@ -283,13 +285,7 @@ router.get('/oauth/authorize', async (req, res) => {
     createdAt: Date.now(),
   });
 
-  oauthStateStore.set(newState, {
-    clientRedirectUri: redirectUri,
-    clientState,
-    codeVerifier: verifier,
-    callbackUrl,
-    createdAt: Date.now(),
-  });
+
 
   // Redirect to Looker Native OAuth UI (/auth)
   const lookerAuthorizeUrl = new URL('/auth', lookerAuthBaseUrl);
@@ -337,9 +333,8 @@ router.post('/oauth/token', async (req, res) => {
       let lookerUserId = null;
 
       if (code) {
-        const decrypted = decryptPayload(code) || authCodes.get(code);
+        const decrypted = decryptPayload(code);
         if (decrypted) {
-          authCodes.delete(code);
           const codeAgeMs = Date.now() - (decrypted.createdAt || 0);
           if (codeAgeMs < 10 * 60 * 1000) {
             lookerUserId = decrypted.looker_user_id;

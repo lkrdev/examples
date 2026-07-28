@@ -67,7 +67,13 @@ public class Script : ScriptBase
             return userUri.ToString().TrimEnd('/');
         }
 
-        throw new InvalidOperationException("Invalid Looker Instance URL. Please specify a valid absolute URL in DefaultLookerInstanceUrl.");
+        if (this.Context?.Request?.RequestUri != null)
+        {
+            var reqUri = this.Context.Request.RequestUri;
+            return $"{reqUri.Scheme}://{reqUri.Host}".TrimEnd('/');
+        }
+
+        throw new InvalidOperationException("Invalid Looker Instance URL. Please configure Host on the General tab or specify DefaultLookerInstanceUrl in Script.cs.");
     }
 
     private string GetAccessTokenFromContext()

@@ -11,6 +11,7 @@ Custom Connector for Microsoft Power Automate, Power Apps, and Copilot Studio. C
 
 ## Prerequisites
 
+- Access to a Microsoft Power Platform environment (Power Automate, Power Apps, or Copilot Studio) with permissions to create custom connectors.
 - Access to a Looker instance.
 - The [Looker OAuth 2.0 Access Token Proxy](oauth-2-access-token/README.md) running locally or deployed to serve OAuth 2.0 authentication.
 
@@ -33,12 +34,19 @@ Setup and configuration details are in [oauth-2-access-token/README.md](oauth-2-
 
 1. Open Power Automate or Power Apps.
 2. Navigate to **Custom Connectors**, select **New custom connector**, then choose **Import an OpenAPI file** (or OpenAPI URL).
-3. Select [looker_mcp_single_endpoint_swagger.yaml](looker_mcp_single_endpoint_swagger.yaml) and click **Continue**.
-4. Configure the custom code script on the **Code** tab:
+3. Set **Connector title** to **Looker_MCP_and_AI_Agents** (or your preferred alphanumeric name), select [looker_mcp_openapi.json](looker_mcp_openapi.json), and click **Continue**.
+4. On the **General** tab, update **Host** from `your-instance.cloud.looker.com` to your target Looker instance domain (e.g. `mycompany.looker.com`).
+5. On the **Security** tab, configure OAuth 2.0 settings (you can view and copy these values anytime by running `npm run setup` -> **[5] Print OAuth Settings** in [oauth-2-access-token](oauth-2-access-token/README.md)):
+   - Set **Authorization URL** and **Token URL** to your Looker OAuth Token Proxy endpoints (`https://<your-proxy-domain>/oauth/authorize` and `https://<your-proxy-domain>/oauth/token`).
+   - Enter your proxy **Client ID** and **Client Secret**.
+6. Configure the custom code script on the **Code** tab:
    - Toggle **Code Enabled** to `On`.
-   - Under **Code File**, upload or paste the contents of [Script.cs](file:///usr/local/google/home/bryanweber/lkrdev/examples/power_platform_looker_mcp/Script.cs).
+   - Under **Code File**, upload or paste the contents of [Script.cs](Script.cs).
    - Under **Actions**, select all operations so the script processes all connector requests.
-5. Select **Update connector** (or **Create connector**).
+7. Select **Create connector** (or **Update connector**).
+8. Once saved, copy the generated **Redirect URL** displayed at the bottom of the **Security** tab and add it to `ALLOWED_REDIRECT_URIS` in `.env`.
+9. Register/update the OAuth Client application in Looker by running `npm run setup` -> **[3] Register OAuth Client** (or `npm run looker:register-oauth`) in [oauth-2-access-token](oauth-2-access-token/README.md).
+10. Start the proxy service by running `npm start` in [oauth-2-access-token](oauth-2-access-token/README.md).
 
 ### Create and Authenticate the Connection
 

@@ -1,5 +1,7 @@
 import app from './app.js';
-import { config } from './config.js';
+import { config, validateConfig } from './config.js';
+
+validateConfig();
 
 const PORT = config.port;
 const HOST = config.host || '127.0.0.1';
@@ -17,7 +19,7 @@ const server = app.listen(PORT, HOST, () => {
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`\n[FATAL ERROR] Port ${PORT} is already in use by another process.`);
-    console.error(`Run 'lsof -t -i:${PORT} | xargs kill -9' to free port ${PORT}.\n`);
+    console.error(`Run 'lsof -t -i:${PORT} | xargs -r kill -9' to free port ${PORT}.\n`);
     process.exit(1);
   } else {
     console.error('[Server Error]:', err);

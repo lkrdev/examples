@@ -140,10 +140,15 @@ After saving the connector, add the generated redirect URI to `ALLOWED_REDIRECT_
 ## Security Controls
 
 - The `client_credentials` grant type is disabled on `POST /oauth/token`.
-- Looker API credentials (`LOOKERSDK_CLIENT_ID` and `LOOKERSDK_CLIENT_SECRET`) must belong to an admin user with `login_user` (`sudo`) permissions.
+- Looker API credentials (`LOOKERSDK_CLIENT_ID` and `LOOKERSDK_CLIENT_SECRET`) must belong to an admin user with `sudo` permission (which enables API user impersonation via `login_user`).
 - User identity is resolved strictly from Looker OAuth sign-in.
 - Authorization codes contain AES-256-GCM encrypted user payloads.
 - Non-admin user tokens are generated on demand without proxy storage.
+
+## Prerequisites
+
+- Node.js (v18 or higher) and `npm` (or `nvm` to manage Node versions).
+- Admin API credentials for Looker (`LOOKERSDK_CLIENT_ID` & `LOOKERSDK_CLIENT_SECRET`) with `sudo` permission.
 
 ## Environment Variables
 
@@ -281,4 +286,9 @@ npm test
 Start the proxy server:
 ```bash
 npm start
+```
+
+Start Cloudflare Tunnel with redundant connections:
+```bash
+cloudflared tunnel --ha-connections 4 --url http://127.0.0.1:3000
 ```

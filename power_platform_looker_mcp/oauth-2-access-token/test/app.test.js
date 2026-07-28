@@ -120,7 +120,7 @@ describe('Looker OAuth 2.0 Access Token Proxy', () => {
   describe('GET /oauth/authorize & PKCE Bridge Endpoints', () => {
     it('GET /oauth/authorize redirects to Looker OAuth sign-in screen when redirect_uri is authorized', async () => {
       const redirectTarget = 'http://localhost:8080/callback';
-      config.allowedRedirectUris.push(redirectTarget);
+      config.allowedRedirectUris = [...config.allowedRedirectUris, redirectTarget];
       try {
         const res = await makeRequest(
           `/oauth/authorize?client_id=${config.oauthClientId}&redirect_uri=${encodeURIComponent(redirectTarget)}&response_type=code&state=teststate`
@@ -133,12 +133,43 @@ describe('Looker OAuth 2.0 Access Token Proxy', () => {
       }
     });
 
+    it('GET /oauth/authorize accepts subpath redirect_uri and handles CRLF in ALLOWED_REDIRECT_URIS', async () => {
+      const baseRedirect = 'https://global.consent.azure-apim.net/redirect';
+      const subpathRedirect = 'https://global.consent.azure-apim.net/redirect/looker-5fmcp-5fand-5fai-5fagents-5fd627d5acf692-ea4b3387665a7f3c';
+      const originalEnv = process.env.ALLOWED_REDIRECT_URIS;
+      process.env.ALLOWED_REDIRECT_URIS = `${baseRedirect}\r\n`;
+
+      try {
+        const res = await makeRequest(
+          `/oauth/authorize?client_id=${config.oauthClientId}&redirect_uri=${encodeURIComponent(subpathRedirect)}`
+        );
+        assert.equal(res.status, 302);
+        assert.ok(res.headers.location);
+      } finally {
+        process.env.ALLOWED_REDIRECT_URIS = originalEnv;
+      }
+    });
+
     it('GET /oauth/authorize rejects unauthorized redirect_uri', async () => {
       const res = await makeRequest(
         `/oauth/authorize?client_id=${config.oauthClientId}&redirect_uri=https://unauthorized.com/callback`
       );
       assert.equal(res.status, 400);
       assert.equal(res.body.error, 'invalid_request');
+    });
+
+    it('GET /oauth/authorize errors with 500 when ALLOWED_REDIRECT_URIS is missing', async () => {
+      const originalEnv = process.env.ALLOWED_REDIRECT_URIS;
+      delete process.env.ALLOWED_REDIRECT_URIS;
+      try {
+        const res = await makeRequest(
+          `/oauth/authorize?client_id=${config.oauthClientId}&redirect_uri=https://example.com/callback`
+        );
+        assert.equal(res.status, 500);
+        assert.equal(res.body.error, 'server_error');
+      } finally {
+        process.env.ALLOWED_REDIRECT_URIS = originalEnv;
+      }
     });
   });
 

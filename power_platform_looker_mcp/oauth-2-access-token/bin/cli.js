@@ -8,6 +8,24 @@ import { stdin as input, stdout as output } from 'node:process';
 import { LookerNodeSDK } from '@looker/sdk-node';
 import { registerOrUpdateOAuthClient } from '../scripts/register_oauth_client.js';
 
+if (typeof AbortSignal !== 'undefined' && !AbortSignal.timeout) {
+  AbortSignal.timeout = (ms) => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), ms);
+    return controller.signal;
+  };
+}
+
+// Suppress upstream @looker/sdk-rtl bug logging false AbortSignal.timeout warning
+const originalDebug = console.debug;
+console.debug = (...args) => {
+  if (typeof args[0] === 'string' && args[0].includes('AbortSignal.timeout is not defined')) {
+    return;
+  }
+  originalDebug(...args);
+};
+
+
 // ANSI Color Helpers
 const colors = {
   reset: '\x1b[0m',
@@ -249,7 +267,7 @@ async function runNewSetupWizard(rl) {
 
   // STEP 3: Cloudflare Tunnel & Public Issuer URL
   console.log(`${colors.cyan}${colors.bright}[STEP 3/5] Configure Public Issuer / Cloudflare Tunnel URL${colors.reset}`);
-  console.log(`${colors.dim}Note: Ensure your Cloudflare tunnel is running (e.g. 'cloudflared tunnel --url http://127.0.0.1:3000')${colors.reset}`);
+  console.log(`${colors.dim}Note: Ensure your Cloudflare tunnel is running (e.g. 'cloudflared tunnel --ha-connections 4 --url http://127.0.0.1:3000')${colors.reset}`);
 
   let issuerUrl = await promptInput(rl, 'Public Issuer URL (e.g. https://xxx.trycloudflare.com)', currentEnv.OAUTH_ISSUER_URL || '');
   while (!issuerUrl || !issuerUrl.startsWith('http')) {
@@ -266,7 +284,7 @@ async function runNewSetupWizard(rl) {
     console.log(`${colors.yellow}⚠️ ${tunnelCheck.message}${colors.reset}\n`);
   } else {
     console.log(`${colors.yellow}⚠️ Tunnel Connection Notice:${colors.reset} ${tunnelCheck.message}`);
-    console.log(`${colors.dim}Make sure 'cloudflared tunnel --url http://127.0.0.1:3000' is running in your terminal.${colors.reset}\n`);
+    console.log(`${colors.dim}Make sure 'cloudflared tunnel --ha-connections 4 --url http://127.0.0.1:3000' is running in your terminal.${colors.reset}\n`);
   }
 
   saveEnv({ OAUTH_ISSUER_URL: issuerUrl });
@@ -327,7 +345,7 @@ async function runNewSetupWizard(rl) {
   } else {
     console.log(`  👉 Next steps:`);
     console.log(`     1. Start proxy server: ${colors.bright}${colors.yellow}npm start${colors.reset}`);
-    console.log(`     2. Start Cloudflare tunnel: ${colors.bright}${colors.yellow}cloudflared tunnel --url http://127.0.0.1:3000${colors.reset}`);
+    console.log(`     2. Start Cloudflare tunnel: ${colors.bright}${colors.yellow}cloudflared tunnel --ha-connections 4 --url http://127.0.0.1:3000${colors.reset}`);
     console.log(`     3. Test your connection in Power Automate / Azure APIM.\n`);
   }
 }
@@ -477,7 +495,7 @@ async function showStatus(rl) {
       console.log(`\n  ${colors.yellow}${colors.bright}Action Required:${colors.reset} Run ${colors.bright}${colors.cyan}npm start${colors.reset} to launch the proxy server.\n`);
     } else {
       console.log(`  Tunnel Reachability   : ${colors.yellow}⚠️ ${check.message}${colors.reset}`);
-      console.log(`\n  ${colors.yellow}${colors.bright}Action Required:${colors.reset} Start tunnel (${colors.cyan}cloudflared tunnel --url http://127.0.0.1:3000${colors.reset}) & server (${colors.cyan}npm start${colors.reset}).\n`);
+      console.log(`\n  ${colors.yellow}${colors.bright}Action Required:${colors.reset} Start tunnel (${colors.cyan}cloudflared tunnel --ha-connections 4 --url http://127.0.0.1:3000${colors.reset}) & server (${colors.cyan}npm start${colors.reset}).\n`);
     }
   } else {
     console.log(`\n  ${colors.yellow}${colors.bright}Action Required:${colors.reset} Run New Setup Wizard to configure your Issuer URL.\n`);
