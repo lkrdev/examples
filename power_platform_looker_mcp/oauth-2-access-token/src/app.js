@@ -5,11 +5,17 @@ import { requestLogger } from './middleware/requestLogger.js';
 
 const app = express();
 
-// Security Headers Middleware
+// Security & CORS Headers Middleware
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Content-Security-Policy', "default-src 'self'");
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
   next();
 });
 

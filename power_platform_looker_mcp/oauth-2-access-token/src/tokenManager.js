@@ -3,6 +3,7 @@ import { config } from './config.js';
 class LookerTokenManager {
   constructor() {
     this.cache = new Map();
+    this.adminTokenPromise = null;
   }
 
   isTokenValid(tokenEntry) {
@@ -21,17 +22,29 @@ class LookerTokenManager {
       return { ...cachedToken, expiresIn: this.getRemainingTtl(cachedToken), cached: true };
     }
 
-    const tokenData = await this.fetchAdminTokenFromLooker();
-    const tokenEntry = {
-      accessToken: tokenData.accessToken,
-      tokenType: tokenData.tokenType || 'Bearer',
-      expiresIn: tokenData.expiresIn,
-      expiresAt: Date.now() + tokenData.expiresIn * 1000,
-      createdAt: Date.now(),
-      scope: tokenData.scope || 'api',
-    };
-    this.cache.set('admin', tokenEntry);
-    return { ...tokenEntry, expiresIn: this.getRemainingTtl(tokenEntry), cached: false };
+    if (this.adminTokenPromise) {
+      return this.adminTokenPromise;
+    }
+
+    this.adminTokenPromise = (async () => {
+      try {
+        const tokenData = await this.fetchAdminTokenFromLooker();
+        const tokenEntry = {
+          accessToken: tokenData.accessToken,
+          tokenType: tokenData.tokenType || 'Bearer',
+          expiresIn: tokenData.expiresIn,
+          expiresAt: Date.now() + tokenData.expiresIn * 1000,
+          createdAt: Date.now(),
+          scope: tokenData.scope || 'api',
+        };
+        this.cache.set('admin', tokenEntry);
+        return { ...tokenEntry, expiresIn: this.getRemainingTtl(tokenEntry), cached: false };
+      } finally {
+        this.adminTokenPromise = null;
+      }
+    })();
+
+    return this.adminTokenPromise;
   }
 
   async fetchAdminTokenFromLooker() {

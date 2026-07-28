@@ -132,6 +132,11 @@ Configure custom connector security settings with these parameters:
 
 After saving the connector, add the generated redirect URI to `ALLOWED_REDIRECT_URIS` in `.env`.
 
+### Connection Sharing & Power Platform Permissions
+
+- Shared flow connections established by a single owner will request tokens for that owner's Looker user ID. If the owner account is disabled or revoked, the connection fails for all users of the flow.
+- To enforce individual Looker permissions in multi-user apps or team flows, set the custom connector connection to **Provided by run-only user**. Each user authenticates through the proxy with their own Looker credentials to generate isolated user-scoped access tokens.
+
 ## Security Controls
 
 - The `client_credentials` grant type is disabled on `POST /oauth/token`.
@@ -250,6 +255,12 @@ Looker `/auth` received a redirect URI that does not match the registered callba
 
 ### Login User Failed (HTTP 403 or 404)
 Looker API credentials do not belong to an admin user or lack `sudo` (`login_user`) permissions. Generate new API keys from an admin user account in Looker (**Admin -> Users -> API Keys**).
+
+### Disabled or Revoked Looker User Accounts
+If a Looker user account is disabled or deleted in Looker:
+1. Looker's `POST /api/4.0/login/:userId` endpoint rejects the token request with HTTP 403/404 ("User is disabled").
+2. The proxy returns an HTTP 400 `invalid_grant` error response to Power Automate.
+3. Power Automate automatically marks the user's connection as unauthenticated, halting active flow or app executions for that account.
 
 ### Port 3000 Collision (`EADDRINUSE`)
 Another process is listening on port 3000. Run `npm start` to execute port cleanup, or manually terminate the process:

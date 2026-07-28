@@ -23,6 +23,7 @@ The [oauth-2-access-token](oauth-2-access-token/README.md) directory contains a 
 - Connects custom connectors using standard RFC 6749 OAuth 2.0 authorization code and token endpoints (`/oauth/authorize` and `/oauth/token`).
 - Authenticates individual users via Looker login and dynamically issues 60-minute user-specific access tokens (`login_user`).
 - Returns `expires_in: 3600` responses so Power Automate handles background token refresh and HTTP 401 retries automatically.
+- Rejects token requests for disabled or deleted Looker users with HTTP 400 `invalid_grant`, causing Power Automate to invalidate the connection and halt flow execution.
 
 Setup and configuration details are in [oauth-2-access-token/README.md](oauth-2-access-token/README.md).
 
@@ -32,7 +33,7 @@ Setup and configuration details are in [oauth-2-access-token/README.md](oauth-2-
 
 1. Open Power Automate or Power Apps.
 2. Navigate to **Custom Connectors**, select **New custom connector**, then choose **Import an OpenAPI file** (or OpenAPI URL).
-3. Select [looker_mcp_single_endpoint_swagger.json](file:///usr/local/google/home/bryanweber/lkrdev/examples/power_platform_looker_mcp/looker_mcp_single_endpoint_swagger.json) (or [looker_mcp_single_endpoint_swagger.yaml](file:///usr/local/google/home/bryanweber/lkrdev/examples/power_platform_looker_mcp/looker_mcp_single_endpoint_swagger.yaml)) and click **Continue**.
+3. Select [looker_mcp_single_endpoint_swagger.yaml](looker_mcp_single_endpoint_swagger.yaml) and click **Continue**.
 4. Configure the custom code script on the **Code** tab:
    - Toggle **Code Enabled** to `On`.
    - Under **Code File**, upload or paste the contents of [Script.cs](file:///usr/local/google/home/bryanweber/lkrdev/examples/power_platform_looker_mcp/Script.cs).
@@ -45,6 +46,13 @@ Setup and configuration details are in [oauth-2-access-token/README.md](oauth-2-
 2. Select **New Connection**.
 3. Choose the Looker connector and log in using OAuth 2.0 when prompted.
 4. Select **Create connection**.
+
+### Connection Sharing and Permissions
+
+In Power Platform, custom connector connections execute based on how ownership and run-only permissions are configured:
+
+- Shared flow connections execute in Looker under the owner's identity. If that owner's Looker account is disabled or revoked, the connection breaks for all users of the flow until re-authenticated with an active user account.
+- For team flows or canvas apps, set the custom connector connection under **Run-only users** to **Provided by run-only user**. Each user signs in with their own Looker account so actions execute strictly within their individual Looker roles and permissions.
 
 ### Import Example Power Automate Flow
 

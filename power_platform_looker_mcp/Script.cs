@@ -14,6 +14,14 @@ public class Script : ScriptBase
 
     public override async Task<HttpResponseMessage> ExecuteAsync()
     {
+        if (this.Context?.Request == null)
+        {
+            return new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("{\"error\":\"Invalid request context\"}", Encoding.UTF8, "application/json")
+            };
+        }
+
         try
         {
             string accessToken = GetAccessTokenFromContext();
@@ -130,7 +138,7 @@ public class Script : ScriptBase
 
         if (!response.IsSuccessStatusCode)
         {
-            string errDetails = await response.Content.ReadAsStringAsync();
+            string errDetails = response.Content != null ? await response.Content.ReadAsStringAsync() : string.Empty;
             return FormatDetailedErrorResponse(response.StatusCode, $"MCP Request Failed ({response.StatusCode})", errDetails);
         }
 
@@ -187,13 +195,13 @@ public class Script : ScriptBase
 
         if (!response.IsSuccessStatusCode)
         {
-            string errDetails = await response.Content.ReadAsStringAsync();
+            string errDetails = response.Content != null ? await response.Content.ReadAsStringAsync() : string.Empty;
             return FormatDetailedErrorResponse(response.StatusCode, $"Looker API Request Failed ({response.StatusCode})", errDetails);
         }
 
         if (this.Context.OperationId.Equals("ConversationalAnalyticsChat", StringComparison.OrdinalIgnoreCase))
         {
-            string rawContent = await response.Content.ReadAsStringAsync();
+            string rawContent = response.Content != null ? await response.Content.ReadAsStringAsync() : null;
             if (!string.IsNullOrWhiteSpace(rawContent))
             {
                 string trimmed = rawContent.Trim();

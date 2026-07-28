@@ -7,9 +7,43 @@ const router = Router();
 
 // In-memory store for state tracking and authorization codes
 const oauthStateStore = new Map();
-const authCodes = new Map();
+/**
+ * AES-256-GCM Encryption Helper using client_secret
+ */
+function encryptPayload(payload) {
+  const secret = config.oauthClientSecret;
+  const key = crypto.createHash('sha256').update(secret).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  let encrypted = cipher.update(JSON.stringify(payload), 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+}
 
-
+/**
+ * AES-256-GCM Decryption Helper using client_secret
+ */
+function decryptPayload(code) {
+  try {
+    if (!code || typeof code !== 'string') return null;
+    const parts = code.split(':');
+    if (parts.length !== 3) return null;
+    const [ivHex, authTagHex, encryptedHex] = parts;
+    const secret = config.oauthClientSecret;
+    const key = crypto.createHash('sha256').update(secret).digest();
+    const iv = Buffer.from(ivHex, 'hex');
+    const authTag = Buffer.from(authTagHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return JSON.parse(decrypted);
+  } catch (err) {
+    console.error('[Decrypt Error]:', err.message);
+    return null;
+  }
+}
 
 /**
  * Generates a PKCE code_verifier and code_challenge pair
@@ -51,8 +85,15 @@ function validateClientCredentials(req) {
     return { valid: false, error: 'invalid_client', message: 'Client ID mismatch' };
   }
 
-  // Require clientSecret match strictly
-  if (!clientSecret || clientSecret !== config.oauthClientSecret) {
+  // Require clientSecret match strictly using timing-safe comparison
+  const isSecretValid = (() => {
+    if (!clientSecret || typeof clientSecret !== 'string') return false;
+    const aBuf = crypto.createHash('sha256').update(clientSecret).digest();
+    const bBuf = crypto.createHash('sha256').update(config.oauthClientSecret).digest();
+    return crypto.timingSafeEqual(aBuf, bBuf);
+  })();
+
+  if (!isSecretValid) {
     return { valid: false, error: 'invalid_client', message: 'Invalid or missing client_secret' };
   }
 
@@ -86,7 +127,7 @@ router.get('/oauth/authorize', async (req, res) => {
 
   // STEP 3: Handle Looker Callback whenever lookerCode is present
   if (lookerCode) {
-    const stateData = oauthStateStore.get(internalState) || {};
+    const stateData = decryptPayload(internalState) || oauthStateStore.get(internalState) || {};
     if (internalState) oauthStateStore.delete(internalState);
 
     const { codeVerifier, clientRedirectUri, clientState, callbackUrl: storedCallbackUrl } = stateData;
@@ -171,7 +212,10 @@ router.get('/oauth/authorize', async (req, res) => {
       });
     }
 
-    const serverCode = `code_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+    const serverCode = encryptPayload({
+      looker_user_id: String(lookerUserId),
+      createdAt: Date.now(),
+    });
     authCodes.set(serverCode, {
       looker_user_id: String(lookerUserId),
       createdAt: Date.now(),
@@ -228,8 +272,14 @@ router.get('/oauth/authorize', async (req, res) => {
   }
 
   const { verifier, challenge } = generatePkcePair();
-  const newState = `state_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
   const callbackUrl = `${baseUrl}/oauth/authorize`;
+  const newState = encryptPayload({
+    clientRedirectUri: redirectUri,
+    clientState,
+    codeVerifier: verifier,
+    callbackUrl,
+    createdAt: Date.now(),
+  });
 
   oauthStateStore.set(newState, {
     clientRedirectUri: redirectUri,
@@ -284,10 +334,14 @@ router.post('/oauth/token', async (req, res) => {
       const code = req.body?.code || req.query?.code;
       let lookerUserId = null;
 
-      if (code && authCodes.has(code)) {
-        const codeData = authCodes.get(code);
-        authCodes.delete(code); // Consume code immediately
-        lookerUserId = codeData.looker_user_id;
+      if (code) {
+        const decrypted = decryptPayload(code) || authCodes.get(code);
+        if (decrypted) {
+          const codeAgeMs = Date.now() - (decrypted.createdAt || 0);
+          if (codeAgeMs < 10 * 60 * 1000) {
+            lookerUserId = decrypted.looker_user_id;
+          }
+        }
       }
 
       if (!lookerUserId) {
