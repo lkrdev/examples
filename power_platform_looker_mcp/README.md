@@ -46,6 +46,20 @@ Setup and configuration details are in [oauth-2-access-token/README.md](oauth-2-
 3. Choose the Looker connector and log in using OAuth 2.0 when prompted.
 4. Select **Create connection**.
 
+### Import Example Power Automate Flow
+
+An example Power Automate flow package is included for download:
+- [example-mcp-ca_20260728074343.zip](example-mcp-ca_20260728074343.zip)
+
+![Example Power Automate Flow](../assets/power_automate_example_flow.png)
+
+To import the flow:
+1. In Power Automate, navigate to **My flows**.
+2. Select **Import** -> **Import Package (Legacy)**.
+3. Upload [example-mcp-ca_20260728074343.zip](example-mcp-ca_20260728074343.zip).
+4. Map the imported flow to your configured Looker custom connector connection and select **Import**.
+
+
 ## Using MCP Tools in Power Automate
 
 ### List Available Tools
