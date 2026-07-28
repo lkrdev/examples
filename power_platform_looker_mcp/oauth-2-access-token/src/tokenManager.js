@@ -62,8 +62,10 @@ class LookerTokenManager {
           const data = await res.json();
           return { accessToken: data.access_token, tokenType: data.token_type || 'Bearer', expiresIn: data.expires_in || 3600 };
         }
+        throw new Error(`Looker admin login failed with status ${res.status}`);
       } catch (err) {
-        console.error('[LookerTokenManager] Error calling Looker login API:', err.message);
+        if (err.message.includes('status')) throw err;
+        console.warn('[LookerTokenManager] Network error calling Looker login API:', err.message);
       }
     }
     console.warn('[LookerTokenManager] Generating development/test admin token.');
@@ -112,7 +114,7 @@ class LookerTokenManager {
 
   async fetchUserTokenFromLooker(userId, adminAccessToken) {
     const baseUrl = config.lookerBaseUrl;
-    if (baseUrl && adminAccessToken && !adminAccessToken.startsWith('mock_')) {
+    if (baseUrl && adminAccessToken && !adminAccessToken.startsWith('mock_') && /^\d+$/.test(String(userId))) {
       try {
         const loginUserUrl = `${baseUrl.replace(/\/+$/, '')}/api/4.0/login/${encodeURIComponent(userId)}`;
         const res = await fetch(loginUserUrl, {
@@ -123,8 +125,10 @@ class LookerTokenManager {
           const data = await res.json();
           return { accessToken: data.access_token, tokenType: data.token_type || 'Bearer', expiresIn: data.expires_in || 3600 };
         }
+        throw new Error(`Looker login_user failed for user ${userId} with status ${res.status}`);
       } catch (err) {
-        console.error(`[LookerTokenManager] Error calling login_user for user ${userId}:`, err.message);
+        if (err.message.includes('status')) throw err;
+        console.warn(`[LookerTokenManager] Network error calling login_user for user ${userId}:`, err.message);
       }
     }
     console.warn(`[LookerTokenManager] Generating development/test user token for user ${userId}.`);

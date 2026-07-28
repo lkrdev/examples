@@ -7,6 +7,7 @@ const router = Router();
 
 // In-memory store for state tracking and authorization codes
 const oauthStateStore = new Map();
+const authCodes = new Map();
 /**
  * AES-256-GCM Encryption Helper using client_secret
  */
@@ -110,7 +111,8 @@ function isRedirectUriAllowed(redirectUri) {
   if (!redirectUri) return false;
   
   return config.allowedRedirectUris.some((allowed) => {
-    return redirectUri === allowed || redirectUri.startsWith(allowed);
+    if (redirectUri === allowed) return true;
+    return redirectUri.startsWith(allowed + '/') || redirectUri.startsWith(allowed + '?');
   });
 }
 
@@ -337,6 +339,7 @@ router.post('/oauth/token', async (req, res) => {
       if (code) {
         const decrypted = decryptPayload(code) || authCodes.get(code);
         if (decrypted) {
+          authCodes.delete(code);
           const codeAgeMs = Date.now() - (decrypted.createdAt || 0);
           if (codeAgeMs < 10 * 60 * 1000) {
             lookerUserId = decrypted.looker_user_id;
@@ -357,6 +360,7 @@ router.post('/oauth/token', async (req, res) => {
         access_token: tokenResult.accessToken,
         token_type: tokenResult.tokenType || 'Bearer',
         expires_in: tokenResult.expiresIn,
+        refresh_token: encryptPayload({ looker_user_id: String(lookerUserId), createdAt: Date.now() }),
         scope: tokenResult.scope || 'user_api',
         looker_user_id: String(lookerUserId),
       });
@@ -391,28 +395,32 @@ router.post('/oauth/token', async (req, res) => {
     }
 
     if (grantType === 'refresh_token') {
-      const userId = req.body?.user_id || req.query?.user_id;
-      const email = req.body?.email || req.body?.user_email || req.query?.email;
+      const refreshToken = req.body?.refresh_token || req.query?.refresh_token;
+      let lookerUserId = req.body?.user_id || req.query?.user_id;
 
-      if (!userId && !email) {
+      if (refreshToken && !lookerUserId) {
+        const decrypted = decryptPayload(refreshToken);
+        if (decrypted) {
+          lookerUserId = decrypted.looker_user_id;
+        }
+      }
+
+      if (!lookerUserId) {
         return res.status(400).json({
-          error: 'invalid_request',
-          error_description: 'user_id or email is required for refresh_token grant type',
+          error: 'invalid_grant',
+          error_description: 'Invalid or missing refresh_token or user_id',
         });
       }
 
-      let tokenResult;
-      if (email) {
-        tokenResult = await tokenManager.getUserTokenByEmail(email, true);
-      } else {
-        tokenResult = await tokenManager.getUserToken(userId, true);
-      }
+      const tokenResult = await tokenManager.getUserToken(lookerUserId, true);
 
       return res.json({
         access_token: tokenResult.accessToken,
         token_type: tokenResult.tokenType || 'Bearer',
         expires_in: tokenResult.expiresIn,
-        scope: tokenResult.scope || 'api',
+        refresh_token: refreshToken || encryptPayload({ looker_user_id: String(lookerUserId), createdAt: Date.now() }),
+        scope: tokenResult.scope || 'user_api',
+        looker_user_id: String(lookerUserId),
       });
     }
 

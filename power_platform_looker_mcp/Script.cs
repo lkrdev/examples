@@ -67,12 +67,6 @@ public class Script : ScriptBase
             return userUri.ToString().TrimEnd('/');
         }
 
-        if (this.Context.Request?.RequestUri != null && this.Context.Request.RequestUri.IsAbsoluteUri)
-        {
-            var reqUri = this.Context.Request.RequestUri;
-            return $"{reqUri.Scheme}://{reqUri.Authority}".TrimEnd('/');
-        }
-
         throw new InvalidOperationException("Invalid Looker Instance URL. Please specify a valid absolute URL in DefaultLookerInstanceUrl.");
     }
 
@@ -91,7 +85,6 @@ public class Script : ScriptBase
 
         int spaceIdx = rawAuth.IndexOf(' ');
         string token = spaceIdx >= 0 ? rawAuth.Substring(spaceIdx + 1).Trim() : rawAuth;
-        this.Context.Request.Headers.TryAddWithoutValidation("X-Debug-Access-Token", token);
         return token;
     }
 
@@ -207,18 +200,7 @@ public class Script : ScriptBase
                 string trimmed = rawContent.Trim();
                 if (!trimmed.StartsWith("{") || !trimmed.EndsWith("}"))
                 {
-                    string textValue = trimmed;
-                    if (trimmed.StartsWith("\"") && trimmed.EndsWith("\""))
-                    {
-                        try
-                        {
-                            textValue = JToken.Parse(trimmed).ToString();
-                        }
-                        catch
-                        {
-                            // Fall back to trimmed string
-                        }
-                    }
+                    string textValue = trimmed.Trim('"');
 
                     var obj = new JObject
                     {
@@ -226,7 +208,9 @@ public class Script : ScriptBase
                         ["response"] = textValue
                     };
 
+                    var oldContent = response.Content;
                     response.Content = new StringContent(obj.ToString(Newtonsoft.Json.Formatting.None), Encoding.UTF8, "application/json");
+                    oldContent?.Dispose();
                 }
             }
         }
