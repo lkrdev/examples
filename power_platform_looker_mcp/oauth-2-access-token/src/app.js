@@ -4,6 +4,7 @@ import oauthRouter from './routes/oauth.js';
 import { requestLogger } from './middleware/requestLogger.js';
 
 const app = express();
+app.set('trust proxy', true);
 
 // Security & CORS Headers Middleware
 app.use((req, res, next) => {

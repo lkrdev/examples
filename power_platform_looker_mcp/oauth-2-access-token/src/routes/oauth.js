@@ -5,6 +5,14 @@ import { tokenManager } from '../tokenManager.js';
 
 const router = Router();
 
+// Track consumed single-use authorization codes
+const usedAuthCodes = new Set();
+
+function markCodeUsed(code) {
+  usedAuthCodes.add(code);
+  setTimeout(() => usedAuthCodes.delete(code), 10 * 60 * 1000);
+}
+
 
 /**
  * AES-256-GCM Encryption Helper using client_secret
@@ -108,12 +116,18 @@ function isRedirectUriAllowed(redirectUri) {
   }
   if (!redirectUri) return false;
 
-  return config.allowedRedirectUris.some((allowed) => {
-    const cleanAllowed = allowed.trim().replace(/[\r\n"']/g, '').replace(/\/+$/, '');
-    const cleanRedirect = redirectUri.trim().replace(/[\r\n"']/g, '').replace(/\/+$/, '');
-    if (cleanRedirect === cleanAllowed) return true;
-    return cleanRedirect.startsWith(cleanAllowed + '/') || cleanRedirect.startsWith(cleanAllowed + '?');
-  });
+  try {
+    const parsedRedirect = new URL(redirectUri);
+    const cleanRedirect = parsedRedirect.href.trim().replace(/\/+$/, '');
+
+    return config.allowedRedirectUris.some((allowed) => {
+      const cleanAllowed = allowed.trim().replace(/[\r\n"']/g, '').replace(/\/+$/, '');
+      if (cleanRedirect === cleanAllowed) return true;
+      return cleanRedirect.startsWith(cleanAllowed + '/') || cleanRedirect.startsWith(cleanAllowed + '?');
+    });
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -129,7 +143,13 @@ router.get('/oauth/authorize', async (req, res) => {
 
   // STEP 3: Handle Looker Callback whenever lookerCode is present
   if (lookerCode) {
-    const stateData = decryptPayload(internalState) || {};
+    const stateData = decryptPayload(internalState);
+    if (!stateData) {
+      return res.status(400).json({
+        error: 'invalid_state',
+        error_description: 'The state parameter is missing, invalid, or has been tampered with.',
+      });
+    }
 
     const { codeVerifier, clientRedirectUri, clientState, callbackUrl: storedCallbackUrl } = stateData;
 
@@ -333,11 +353,18 @@ router.post('/oauth/token', async (req, res) => {
       let lookerUserId = null;
 
       if (code) {
+        if (usedAuthCodes.has(code)) {
+          return res.status(400).json({
+            error: 'invalid_grant',
+            error_description: 'Authorization code has already been used.',
+          });
+        }
         const decrypted = decryptPayload(code);
         if (decrypted) {
           const codeAgeMs = Date.now() - (decrypted.createdAt || 0);
           if (codeAgeMs < 10 * 60 * 1000) {
             lookerUserId = decrypted.looker_user_id;
+            markCodeUsed(code);
           }
         }
       }

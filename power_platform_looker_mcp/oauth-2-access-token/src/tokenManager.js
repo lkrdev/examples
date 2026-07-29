@@ -72,18 +72,30 @@ class LookerTokenManager {
     return { accessToken: `mock_admin_token_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`, tokenType: 'Bearer', expiresIn: 3600 };
   }
 
-  async getUserToken(userId) {
+  async getUserToken(userId, forceRefresh = false) {
     if (!userId) throw new Error('user_id is required to fetch a user token');
+
+    const cacheKey = `user_${userId}`;
+    const cachedToken = this.cache.get(cacheKey);
+    if (!forceRefresh && this.isTokenValid(cachedToken)) {
+      return { ...cachedToken, expiresIn: this.getRemainingTtl(cachedToken), cached: true };
+    }
+
     const adminTokenData = await this.getAdminToken();
     const tokenData = await this.fetchUserTokenFromLooker(userId, adminTokenData.accessToken);
-    return {
+
+    const tokenEntry = {
       accessToken: tokenData.accessToken,
       tokenType: tokenData.tokenType || 'Bearer',
       expiresIn: tokenData.expiresIn || 3600,
+      expiresAt: Date.now() + (tokenData.expiresIn || 3600) * 1000,
+      createdAt: Date.now(),
       scope: tokenData.scope || 'user_api',
       userId: String(userId),
-      cached: false,
     };
+
+    this.cache.set(cacheKey, tokenEntry);
+    return { ...tokenEntry, expiresIn: this.getRemainingTtl(tokenEntry), cached: false };
   }
 
   async getUserTokenByEmail(email) {

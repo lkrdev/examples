@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const LOG_FILE = path.resolve(process.cwd(), 'log.jsonl');
 
-const SENSITIVE = /secret|password|token|auth|cookie/i;
+const SENSITIVE = /secret|password|token|auth|cookie|code/i;
 
 function sanitize(obj) {
   if (!obj || typeof obj !== 'object') return obj;

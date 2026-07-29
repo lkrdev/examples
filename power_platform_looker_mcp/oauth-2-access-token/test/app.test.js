@@ -158,6 +158,21 @@ describe('Looker OAuth 2.0 Access Token Proxy', () => {
       assert.equal(res.body.error, 'invalid_request');
     });
 
+    it('GET /oauth/authorize rejects path traversal redirect_uri attempts', async () => {
+      const baseRedirect = 'https://global.consent.azure-apim.net/redirect/allowed-app';
+      const traversalRedirect = 'https://global.consent.azure-apim.net/redirect/allowed-app/../attacker-app';
+      config.allowedRedirectUris = [baseRedirect];
+      try {
+        const res = await makeRequest(
+          `/oauth/authorize?client_id=${config.oauthClientId}&redirect_uri=${encodeURIComponent(traversalRedirect)}&response_type=code`
+        );
+        assert.equal(res.status, 400);
+        assert.equal(res.body.error, 'invalid_request');
+      } finally {
+        config.allowedRedirectUris = [];
+      }
+    });
+
     it('GET /oauth/authorize errors with 500 when ALLOWED_REDIRECT_URIS is missing', async () => {
       const originalEnv = process.env.ALLOWED_REDIRECT_URIS;
       delete process.env.ALLOWED_REDIRECT_URIS;
