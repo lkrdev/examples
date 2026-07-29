@@ -1,26 +1,24 @@
 # Long Metrics Table
 
-This example shows how to model LookML views to generate a **long metrics table** (narrow format). The philosophy behind this pattern is to maintain proper, robust data modeling in LookML for standard exploration, while layering simplified slices on top for specific use cases like financial reporting.
+This example shows how to model LookML views for a long metrics table (narrow format). The pattern keeps core data models clean for standard Looker exploration while providing a simplified interface for financial reporting and external spreadsheet tools.
 
-First, standard LookML modeling keeps core data (such as order items, products, users) structured with standard relationships and measures. This ensures that business analysts and standard users can still explore the data interactively with full granularity in Looker.
+Standard LookML modeling handles core data like order items, products, and users with normalized relationships and standard measures. Business analysts can explore granular data interactively in Looker without clutter.
 
-Second, for specific external consumption use cases, such as Finance teams pulling data into Google Sheets, Excel, or Coefficient, we construct a simplified, pre-aggregated long metrics table view on top of our clean core models.
+For external tools like Google Sheets, Excel, or Coefficient, a pre-aggregated long metrics table view sits on top of the core models.
 
-By structuring the output as a long metrics table, we unpivot the metrics and timeframes into simple dimensions:
+Instead of adding wide columns for every combination of metric and timeframe, the long metrics layout unpivots data into standard dimensions:
 
-- Timeframe/Window, Period Alignment, and Metric Names are converted into simple dimensions.
-- A single, generic `value` column is exposed.
-- In Looker, these values are then **re-measured** (aggregated using measures like `type: sum` with filters applied to the `metric` dimension) to expose them as clean, governed metrics.
+Timeframes, period alignments, and metric names become standard dimensions.
+A single value column exposes numerical data.
+Looker re-measures the value field using measures (`type: sum`) filtered by the metric dimension.
 
-This makes it easy for spreadsheet users to consume the data. They can build clean pivot tables or filter using standard dropdowns (filtering by Metric or Timeframe) and plot the single Value field, without needing custom formulas, complex Looker dimensions, or query rewrites.
+Spreadsheet users can build pivot tables or filter by metric and timeframe without writing custom formulas or complex Looker dimensions.
 
-This layout is also highly beneficial within Looker itself. Instead of building complex LookML fields or maintaining multiple dashboard tiles, you can use Looker's native [Table visualization](https://cloud.google.com/looker/docs/table-next-visualizations) or the advanced [lkr.dev Report Table visualization](https://lkr.dev/docs/visualizations/viz-report-table-marketplace2) to construct flexible, dynamic reports by pivoting directly on the metric and timeframe dimensions.
+Within Looker, this layout works directly with the native [Table visualization](https://cloud.google.com/looker/docs/table-next-visualizations) and the [lkr.dev Report Table visualization](https://lkr.dev/docs/visualizations/viz-report-table-marketplace2) to construct dynamic financial reports by pivoting on metrics and timeframes.
 
----
+## Modeling Hierarchy
 
-## Modeling Hierarchy: Raw Tables to Long Metrics
-
-To understand where this pattern fits, we can look at how data flows from the database to the spreadsheet:
+Data moves from transactional tables to downstream spreadsheets through three distinct layers:
 
 ```mermaid
 graph TD
@@ -30,48 +28,42 @@ graph TD
     D -->|Simplified Querying| E["Downstream Spreadsheets (Google Sheets, Excel)"]
 ```
 
-| Layer                      | Structure / Format                                                   | Purpose                                             | Target Audience                                           | Example                                                                             |
-| :------------------------- | :------------------------------------------------------------------- | :-------------------------------------------------- | :-------------------------------------------------------- | :---------------------------------------------------------------------------------- |
-| **1. Raw Tables**          | Transactional / Normalized tables in the database.                   | Storage of truth, granular tracking.                | DBAs, Data Engineers                                      | `order_items` (order_id, product_id, sale_price, created_at)                        |
-| **2. LookML Explores**     | Normalized relationships, joins, and declarative measures.           | Clean business logic definition, ad-hoc queries.    | BI Developers, Data Analysts, Power Users                 | `explore: order_items { join: products {...} }` with measures like `sum_sale_price` |
-| **3. Long Metrics Layout** | Denormalized, pre-aggregated, unpivoted (stacked) key-value records. | Simplified, static slices for external consumption. | Finance Teams, Spreadsheet Users (via Coefficient/Sheets) | `long_metrics` (date, category, metric, timeframe, value)                           |
-
----
+| Layer | Structure / Format | Purpose | Target Audience | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| Raw Tables | Transactional tables in the database. | Granular storage of record. | DBAs, Data Engineers | `order_items` (`order_id`, `product_id`, `sale_price`, `created_at`) |
+| LookML Explores | Normalized relationships, joins, and declarative measures. | Business logic definition and ad-hoc queries. | BI Developers, Data Analysts | `explore: order_items` joining `products` |
+| Long Metrics Layout | Pre-aggregated, unpivoted key-value records. | Static, simplified slices for external tools. | Finance Teams, Spreadsheet Users | `long_metrics` (`date`, `category`, `metric`, `timeframe`, `value`) |
 
 ## Wide Layout vs. Long Metrics Layout
 
 ### Wide Layout (Standard Fact Table)
 
-In a wide layout, adding new timeframes or metrics requires adding new columns and measures to the model:
+Adding new timeframes or metrics to a wide layout requires adding new columns and measures to the model:
 
-| Date       | Product Category | Total Sale Price (7D) | Total Sale Price (28D) | Gross Margin (7D) |
-| :--------- | :--------------- | :-------------------- | :--------------------- | :---------------- |
-| 2026-07-06 | Electronics      | \$1,000               | \$3,500                | \$200             |
+| Date | Product Category | Total Sale Price (7D) | Total Sale Price (28D) | Gross Margin (7D) |
+| :--- | :--- | :--- | :--- | :--- |
+| 2026-07-06 | Electronics | \$1,000 | \$3,500 | \$200 |
 
-### Long Metrics (Narrow) Layout
+### Long Metrics Layout
 
-In a long metrics layout, everything is stacked, and timeframes/metrics are simple dimensions:
+In a long metrics layout, metrics and timeframes are rows instead of columns:
 
-| Date       | Product Category | Metric             | Timeframe | Value |
-| :--------- | :--------------- | :----------------- | :-------- | :---- |
-| 2026-07-06 | Electronics      | Total Sale Price   | r7d       | 1000  |
-| 2026-07-06 | Electronics      | Total Sale Price   | r28d      | 3500  |
-| 2026-07-06 | Electronics      | Total Gross Margin | r7d       | 200   |
-
----
+| Date | Product Category | Metric | Timeframe | Value |
+| :--- | :--- | :--- | :--- | :--- |
+| 2026-07-06 | Electronics | Total Sale Price | r7d | 1000 |
+| 2026-07-06 | Electronics | Total Sale Price | r28d | 3500 |
+| 2026-07-06 | Electronics | Total Gross Margin | r7d | 200 |
 
 ## File Structure
 
-- [.agents/skills/long-metrics-table/SKILL.md](.agents/skills/long-metrics-table/SKILL.md): Agent skill and detailed guide on how to add new metrics, dimensions, and post-aggregation calculations to this setup.
-- [long-metrics.view.lkml](long-metrics.view.lkml): Core LookML view containing the base aggregation fields, metric-specific SQL window functions, and the final stacked `long_metrics` view using `UNION ALL`.
-- [thelook.model.lkml](thelook.model.lkml): Model file defining the `order_items` explore used as the source for metrics.
+The workspace contains the following core files:
 
----
+- [.agents/skills/long-metrics-table/SKILL.md](.agents/skills/long-metrics-table/SKILL.md) provides detailed instructions on adding metrics, dimensions, and post-aggregation calculations.
+- [long-metrics.view.lkml](long-metrics.view.lkml) defines the base aggregation fields, metric-specific SQL window functions, and stacked `UNION ALL` queries.
+- [thelook.model.lkml](thelook.model.lkml) defines the `order_items` explore used as the data source.
 
 ## Developing with AI Agents
 
-This repository is equipped with an agent skill at [.agents/skills/long-metrics-table/SKILL.md](.agents/skills/long-metrics-table/SKILL.md), which coaches AI coding assistants on how to manage, maintain, and extend this long metrics pattern.
+An agent skill is located at [.agents/skills/long-metrics-table/SKILL.md](.agents/skills/long-metrics-table/SKILL.md) to guide AI coding assistants when expanding this pattern. 
 
-- We recommend using [Antigravity](https://antigravity.google) to automate editing this codebase.
-- The skill is also designed to work with other coding assistants, such as Claude Code or Codex.
-- To learn more about this workflow, you can follow the official Google Codelab [Author LookML with Agentic Coding Tools](https://codelabs.developers.google.com/next26/looker-agentic-lookml).
+Tools like [Antigravity](https://antigravity.google) and other AI coding assistants use this skill to maintain consistency across edits. For a step-by-step walkthrough, see the Google Codelab [Author LookML with Agentic Coding Tools](https://codelabs.developers.google.com/next26/looker-agentic-lookml).
