@@ -2,6 +2,8 @@ module fabric-test
 
 go 1.26.6
 
+require github.com/microsoft/go-mssqldb v1.11.2
+
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1 // indirect
@@ -12,7 +14,6 @@ require (
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
-	github.com/microsoft/go-mssqldb v1.11.2 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	golang.org/x/crypto v0.55.0 // indirect

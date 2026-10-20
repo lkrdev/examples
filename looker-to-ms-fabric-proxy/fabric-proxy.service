@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=fabric-proxy
 WorkingDirectory=/opt/fabric-proxy
 ExecStart=/opt/fabric-proxy/fabric-proxy
 Restart=always

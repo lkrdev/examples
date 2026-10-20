@@ -30,28 +30,18 @@ func loadEnvFile(path string) {
 	if err != nil {
 		return
 	}
-	lines := strings.Split(string(data), "\n")
 	loadedCount := 0
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "export "))
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "export ") {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.TrimSpace(parts[1])
-		if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
-			val = val[1 : len(val)-1]
-		}
-		if _, exists := os.LookupEnv(key); !exists {
-			os.Setenv(key, val)
-			loadedCount++
+		if k, v, ok := strings.Cut(line, "="); ok {
+			key := strings.TrimSpace(k)
+			if _, exists := os.LookupEnv(key); !exists {
+				os.Setenv(key, strings.TrimSpace(strings.Trim(strings.TrimSpace(v), "\"'")))
+				loadedCount++
+			}
 		}
 	}
 	if loadedCount > 0 {
@@ -70,12 +60,9 @@ func parseFlags() (*Config, error) {
 	loadEnvFile(".env")
 
 	cfg := &Config{}
-
 	portDefault := 1433
-	if envPort := os.Getenv("FABRIC_PORT"); envPort != "" {
-		if p, err := strconv.Atoi(envPort); err == nil {
-			portDefault = p
-		}
+	if p, err := strconv.Atoi(os.Getenv("FABRIC_PORT")); err == nil && p > 0 {
+		portDefault = p
 	}
 
 	flag.StringVar(&cfg.Host, "host", getEnvOrDefault("FABRIC_HOST", ""), "Fabric DW host endpoint (e.g., xxx.datawarehouse.fabric.microsoft.com)")
@@ -83,36 +70,25 @@ func parseFlags() (*Config, error) {
 	flag.StringVar(&cfg.Database, "database", getEnvOrDefault("FABRIC_DATABASE", ""), "Fabric DW database/warehouse name")
 	flag.StringVar(&cfg.ClientID, "client-id", getEnvOrDefault("AZURE_CLIENT_ID", ""), "Entra Application (Client) ID")
 	flag.StringVar(&cfg.TenantID, "tenant-id", getEnvOrDefault("AZURE_TENANT_ID", ""), "Entra Directory (Tenant) ID")
-	flag.StringVar(&cfg.ClientSecret, "client-secret", "", "Entra Application (Client) Secret (defaults to AZURE_CLIENT_SECRET env var)")
+	flag.StringVar(&cfg.ClientSecret, "client-secret", getEnvOrDefault("AZURE_CLIENT_SECRET", ""), "Entra Application (Client) Secret (defaults to AZURE_CLIENT_SECRET env var)")
 	flag.StringVar(&cfg.Table, "table", getEnvOrDefault("FABRIC_TABLE", ""), "Optional table name for SELECT COUNT(*) test")
-
 	timeoutSec := flag.Int("timeout", 30, "Connection and query timeout in seconds")
 
 	flag.Parse()
-
-	if cfg.ClientSecret == "" {
-		cfg.ClientSecret = os.Getenv("AZURE_CLIENT_SECRET")
-	}
-
 	cfg.Timeout = time.Duration(*timeoutSec) * time.Second
 
 	var missing []string
-	if cfg.Host == "" {
-		missing = append(missing, "-host or FABRIC_HOST")
+	for _, req := range []struct{ val, name string }{
+		{cfg.Host, "-host or FABRIC_HOST"},
+		{cfg.Database, "-database or FABRIC_DATABASE"},
+		{cfg.ClientID, "-client-id or AZURE_CLIENT_ID"},
+		{cfg.TenantID, "-tenant-id or AZURE_TENANT_ID"},
+		{cfg.ClientSecret, "-client-secret or AZURE_CLIENT_SECRET"},
+	} {
+		if req.val == "" {
+			missing = append(missing, req.name)
+		}
 	}
-	if cfg.Database == "" {
-		missing = append(missing, "-database or FABRIC_DATABASE")
-	}
-	if cfg.ClientID == "" {
-		missing = append(missing, "-client-id or AZURE_CLIENT_ID")
-	}
-	if cfg.TenantID == "" {
-		missing = append(missing, "-tenant-id or AZURE_TENANT_ID")
-	}
-	if cfg.ClientSecret == "" {
-		missing = append(missing, "-client-secret or AZURE_CLIENT_SECRET")
-	}
-
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("missing required configuration parameters:\n  - %s", strings.Join(missing, "\n  - "))
 	}
@@ -202,40 +178,33 @@ func main() {
 	fmt.Printf("SUCCESS (%v)\n", connectDuration)
 
 	// Execute test query
+	query := "SELECT 1, @@VERSION"
 	if cfg.Table != "" {
-		// Caution: validate or quote table name to prevent SQL syntax injection
-		query := fmt.Sprintf("SELECT COUNT(*) FROM %s", sanitizeIdentifier(cfg.Table))
-		fmt.Printf("Executing query: %s... ", query)
+		query = fmt.Sprintf("SELECT COUNT(*) FROM %s", sanitizeIdentifier(cfg.Table))
+	}
+	fmt.Printf("Executing query: %s... ", query)
+	queryStart := time.Now()
 
-		queryStart := time.Now()
-		var count int64
+	var count int64
+	var val int
+	var version string
+	if cfg.Table != "" {
 		err = db.QueryRowContext(ctx, query).Scan(&count)
-		if err != nil {
-			fmt.Printf("FAILED (elapsed: %v)\n", time.Since(queryStart).Round(time.Millisecond))
-			fmt.Fprintf(os.Stderr, "Query execution error: %v\n", err)
-			os.Exit(1)
-		}
-		queryDuration := time.Since(queryStart).Round(time.Millisecond)
-		fmt.Printf("SUCCESS (%v)\n", queryDuration)
+	} else {
+		err = db.QueryRowContext(ctx, query).Scan(&val, &version)
+	}
+	queryDuration := time.Since(queryStart).Round(time.Millisecond)
+	if err != nil {
+		fmt.Printf("FAILED (elapsed: %v)\n", queryDuration)
+		fmt.Fprintf(os.Stderr, "Query execution error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("SUCCESS (%v)\n", queryDuration)
+	if cfg.Table != "" {
 		fmt.Printf("Result row count: %d\n", count)
 	} else {
-		query := "SELECT 1, @@VERSION"
-		fmt.Printf("Executing query: %s... ", query)
-
-		queryStart := time.Now()
-		var val int
-		var version string
-		err = db.QueryRowContext(ctx, query).Scan(&val, &version)
-		if err != nil {
-			fmt.Printf("FAILED (elapsed: %v)\n", time.Since(queryStart).Round(time.Millisecond))
-			fmt.Fprintf(os.Stderr, "Query execution error: %v\n", err)
-			os.Exit(1)
-		}
-		queryDuration := time.Since(queryStart).Round(time.Millisecond)
-		fmt.Printf("SUCCESS (%v)\n", queryDuration)
 		fmt.Printf("Ping response: %d\n", val)
-		firstLineVersion := strings.Split(version, "\n")[0]
-		fmt.Printf("Server version: %s\n", strings.TrimSpace(firstLineVersion))
+		fmt.Printf("Server version: %s\n", strings.TrimSpace(strings.Split(version, "\n")[0]))
 	}
 
 	fmt.Println("==================================================")

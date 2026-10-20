@@ -1,8 +1,7 @@
 package test;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
@@ -12,6 +11,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.StringJoiner;
 
 /**
  * MockLookerClient simulates Looker connecting to Microsoft Fabric DW
@@ -21,29 +21,18 @@ public class MockLookerClient {
 
     private static Map<String, String> loadEnvFile(String path) {
         Map<String, String> env = new HashMap<>();
-        File file = new File(path);
-        if (!file.exists()) {
+        Path p = Path.of(path);
+        if (!Files.exists(p)) {
             return env;
         }
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                if (line.isEmpty() || line.startsWith("#")) {
+        try {
+            for (String raw : Files.readAllLines(p)) {
+                String line = raw.trim().replaceFirst("^export\\s+", "");
+                if (line.isEmpty() || line.startsWith("#") || !line.contains("=")) {
                     continue;
                 }
-                if (line.startsWith("export ")) {
-                    line = line.substring(7).trim();
-                }
-                int eq = line.indexOf('=');
-                if (eq > 0) {
-                    String key = line.substring(0, eq).trim();
-                    String val = line.substring(eq + 1).trim();
-                    if ((val.startsWith("\"") && val.endsWith("\"")) || (val.startsWith("'") && val.endsWith("'"))) {
-                        val = val.substring(1, val.length() - 1);
-                    }
-                    env.put(key, val);
-                }
+                String[] parts = line.split("=", 2);
+                env.put(parts[0].trim(), parts[1].trim().replaceAll("^[\"']|[\"']$", ""));
             }
         } catch (Exception e) {
             System.err.println("Warning: Could not read " + path + ": " + e.getMessage());
@@ -158,24 +147,22 @@ public class MockLookerClient {
             int colCount = meta.getColumnCount();
 
             // Print header
-            StringBuilder header = new StringBuilder();
+            StringJoiner header = new StringJoiner(" | ");
             for (int i = 1; i <= colCount; i++) {
-                if (i > 1) header.append(" | ");
-                header.append(meta.getColumnLabel(i));
+                header.add(meta.getColumnLabel(i));
             }
-            System.out.println("    " + header.toString());
+            System.out.println("    " + header);
             System.out.println("    " + "-".repeat(Math.max(20, header.length())));
 
             // Print rows
             int rowCount = 0;
             while (rs.next()) {
                 rowCount++;
-                StringBuilder row = new StringBuilder();
+                StringJoiner row = new StringJoiner(" | ");
                 for (int i = 1; i <= colCount; i++) {
-                    if (i > 1) row.append(" | ");
-                    row.append(rs.getString(i));
+                    row.add(String.valueOf(rs.getString(i)));
                 }
-                System.out.println("    " + row.toString());
+                System.out.println("    " + row);
             }
             System.out.printf("    (%d row(s) returned in %d ms)\n", rowCount, duration);
         }

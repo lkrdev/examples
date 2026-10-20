@@ -12,9 +12,11 @@ import (
 	"database/sql/driver"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"math/big"
 	"net"
 	"os"
@@ -34,25 +36,20 @@ import (
 
 // TDS Packet Types (MS-TDS 2.2.1.1)
 const (
-	packSQLBatch   = 0x01
-	packRPCRequest = 0x03
-	packReply      = 0x04
-	packAttention  = 0x0E
-	packLogin7     = 0x10
-	packPrelogin   = 0x12
+	packSQLBatch = 0x01
+	packReply    = 0x04
+	packLogin7   = 0x10
+	packPrelogin = 0x12
 )
 
 // TDS PreLogin Option Tokens (MS-TDS 2.2.6.5)
 const (
-	preloginVERSION         = 0x00
-	preloginENCRYPTION      = 0x01
-	preloginINSTOPT         = 0x02
-	preloginTHREADID        = 0x03
-	preloginMARS            = 0x04
-	preloginTRACEID         = 0x05
-	preloginFEDAUTHREQUIRED = 0x06
-	preloginNONCEOPT        = 0x07
-	preloginTERMINATOR      = 0xFF
+	preloginVERSION    = 0x00
+	preloginENCRYPTION = 0x01
+	preloginINSTOPT    = 0x02
+	preloginTHREADID   = 0x03
+	preloginMARS       = 0x04
+	preloginTERMINATOR = 0xFF
 )
 
 // TDS PreLogin Encryption Flags
@@ -65,11 +62,9 @@ const (
 
 // TDS Tokens in Server Responses (MS-TDS 2.2.7)
 const (
-	tokenError     = 0xAA
-	tokenInfo      = 0xAB
-	tokenLoginAck  = 0xAD
-	tokenEnvChange = 0xE3
-	tokenDone      = 0xFD
+	tokenError    = 0xAA
+	tokenLoginAck = 0xAD
+	tokenDone     = 0xFD
 )
 
 type Config struct {
@@ -110,7 +105,7 @@ func NewLogger(format, level string) *Logger {
 	}
 }
 
-func (l *Logger) logEntry(severity, client, msg string, extra map[string]any) {
+func (l *Logger) logEntry(severity, client, msg string, extra ...map[string]any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -125,8 +120,8 @@ func (l *Logger) logEntry(severity, client, msg string, extra map[string]any) {
 		if client != "" {
 			entry["client"] = client
 		}
-		for k, v := range extra {
-			entry[k] = v
+		if len(extra) > 0 {
+			maps.Copy(entry, extra[0])
 		}
 		data, _ := json.Marshal(entry)
 		fmt.Println(string(data))
@@ -142,41 +137,24 @@ func (l *Logger) logEntry(severity, client, msg string, extra map[string]any) {
 }
 
 func (l *Logger) Info(client, msg string, extra ...map[string]any) {
-	var m map[string]any
-	if len(extra) > 0 {
-		m = extra[0]
-	}
-	l.logEntry("INFO", client, msg, m)
+	l.logEntry("INFO", client, msg, extra...)
 }
 
 func (l *Logger) Warn(client, msg string, extra ...map[string]any) {
-	var m map[string]any
-	if len(extra) > 0 {
-		m = extra[0]
-	}
-	l.logEntry("WARNING", client, msg, m)
+	l.logEntry("WARNING", client, msg, extra...)
 }
 
 func (l *Logger) Error(client, msg string, extra ...map[string]any) {
-	var m map[string]any
-	if len(extra) > 0 {
-		m = extra[0]
-	}
-	l.logEntry("ERROR", client, msg, m)
+	l.logEntry("ERROR", client, msg, extra...)
 }
 
 func (l *Logger) Debug(client, msg string, sessionDebug bool, extra ...map[string]any) {
-	if !l.globalDebug && !sessionDebug {
-		return
+	if l.globalDebug || sessionDebug {
+		l.logEntry("DEBUG", client, msg, extra...)
 	}
-	var m map[string]any
-	if len(extra) > 0 {
-		m = extra[0]
-	}
-	l.logEntry("DEBUG", client, msg, m)
 }
 
-func (l *Logger) Query(client, query string, dur time.Duration, isSlow bool, sessionDebug bool) {
+func (l *Logger) Query(client, query string, dur time.Duration, isSlow bool) {
 	durMs := float64(dur.Microseconds()) / 1000.0
 
 	// Truncate query preview if very long for single-line display
@@ -216,46 +194,32 @@ func (l *Logger) Query(client, query string, dur time.Duration, isSlow bool, ses
 // Configuration Loading
 // ---------------------------------------------------------------------
 
+func cleanVal(val string) string {
+	return strings.TrimSpace(strings.Trim(strings.TrimSpace(val), "\"'"))
+}
+
 func loadEnvFile(path string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
-	lines := strings.Split(string(data), "\n")
 	loadedCount := 0
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "export "))
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "export ") {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.TrimSpace(parts[1])
-		if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
-			val = val[1 : len(val)-1]
-		}
-		if _, exists := os.LookupEnv(key); !exists {
-			os.Setenv(key, val)
-			loadedCount++
+		if k, v, ok := strings.Cut(line, "="); ok {
+			key := strings.TrimSpace(k)
+			if _, exists := os.LookupEnv(key); !exists {
+				os.Setenv(key, cleanVal(v))
+				loadedCount++
+			}
 		}
 	}
 	if loadedCount > 0 {
 		fmt.Printf("[INFO] Loaded %d configuration variables from %s\n", loadedCount, path)
 	}
-}
-
-func cleanVal(val string) string {
-	val = strings.TrimSpace(val)
-	if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
-		val = val[1 : len(val)-1]
-	}
-	return strings.TrimSpace(val)
 }
 
 func getEnvOrDefault(key, fallback string) string {
@@ -265,84 +229,51 @@ func getEnvOrDefault(key, fallback string) string {
 	return fallback
 }
 
+func getEnvInt(key string, fallback int) int {
+	if p, err := strconv.Atoi(cleanVal(os.Getenv(key))); err == nil && p > 0 {
+		return p
+	}
+	return fallback
+}
+
 func parseConfig() (*Config, error) {
 	loadEnvFile(".env")
 
 	cfg := &Config{}
-
-	fabricPortDefault := 1433
-	if envPort := os.Getenv("FABRIC_PORT"); envPort != "" {
-		if p, err := strconv.Atoi(cleanVal(envPort)); err == nil {
-			fabricPortDefault = p
-		}
-	}
-
-	// Listen address default: if PORT env is set (Cloud Run/GCP), default to ":$PORT", else ":14330"
 	defaultListen := ":14330"
 	if portEnv := os.Getenv("PORT"); portEnv != "" && os.Getenv("PROXY_LISTEN_ADDR") == "" {
 		defaultListen = ":" + cleanVal(portEnv)
 	}
 
-	slowQueryMsDefault := 1000
-	if envSlow := os.Getenv("PROXY_SLOW_QUERY_MS"); envSlow != "" {
-		if s, err := strconv.Atoi(cleanVal(envSlow)); err == nil {
-			slowQueryMsDefault = s
-		}
-	}
-
 	flag.StringVar(&cfg.ListenAddr, "listen", getEnvOrDefault("PROXY_LISTEN_ADDR", defaultListen), "Proxy bind address and port")
 	flag.StringVar(&cfg.ProxyUser, "proxy-user", getEnvOrDefault("PROXY_USER", "looker_user"), "Expected incoming JDBC username")
-	flag.StringVar(&cfg.ProxyPass, "proxy-password", "", "Expected incoming JDBC password (defaults to PROXY_PASSWORD env var)")
+	flag.StringVar(&cfg.ProxyPass, "proxy-password", getEnvOrDefault("PROXY_PASSWORD", ""), "Expected incoming JDBC password (defaults to PROXY_PASSWORD env var)")
 	flag.StringVar(&cfg.FabricHost, "fabric-host", getEnvOrDefault("FABRIC_HOST", ""), "Fabric DW host endpoint")
-	flag.IntVar(&cfg.FabricPort, "fabric-port", fabricPortDefault, "Fabric DW port (default 1433)")
+	flag.IntVar(&cfg.FabricPort, "fabric-port", getEnvInt("FABRIC_PORT", 1433), "Fabric DW port (default 1433)")
 	flag.StringVar(&cfg.FabricDB, "fabric-database", getEnvOrDefault("FABRIC_DATABASE", ""), "Fabric DW database name")
 	flag.StringVar(&cfg.ClientID, "client-id", getEnvOrDefault("AZURE_CLIENT_ID", ""), "Entra Application (Client) ID")
 	flag.StringVar(&cfg.TenantID, "tenant-id", getEnvOrDefault("AZURE_TENANT_ID", ""), "Entra Directory (Tenant) ID")
-	flag.StringVar(&cfg.ClientSecret, "client-secret", "", "Entra Client Secret (defaults to AZURE_CLIENT_SECRET env var)")
+	flag.StringVar(&cfg.ClientSecret, "client-secret", getEnvOrDefault("AZURE_CLIENT_SECRET", ""), "Entra Client Secret (defaults to AZURE_CLIENT_SECRET env var)")
 	flag.StringVar(&cfg.LogLevel, "log-level", getEnvOrDefault("PROXY_LOG_LEVEL", "info"), "Log level: debug or info")
 	flag.StringVar(&cfg.LogFormat, "log-format", getEnvOrDefault("PROXY_LOG_FORMAT", "text"), "Log format: text or json (for GCP Cloud Logging)")
-	slowThresholdFlag := flag.Int("slow-query-ms", slowQueryMsDefault, "Threshold in ms to log slow query warning")
+	slowThresholdFlag := flag.Int("slow-query-ms", getEnvInt("PROXY_SLOW_QUERY_MS", 1000), "Threshold in ms to log slow query warning")
 
 	flag.Parse()
-
-	cfg.ListenAddr = cleanVal(cfg.ListenAddr)
-	cfg.ProxyUser = cleanVal(cfg.ProxyUser)
-	cfg.FabricHost = cleanVal(cfg.FabricHost)
-	cfg.FabricDB = cleanVal(cfg.FabricDB)
-	cfg.ClientID = cleanVal(cfg.ClientID)
-	cfg.TenantID = cleanVal(cfg.TenantID)
-	cfg.LogLevel = cleanVal(cfg.LogLevel)
-	cfg.LogFormat = cleanVal(cfg.LogFormat)
-
 	cfg.SlowQueryThreshold = time.Duration(*slowThresholdFlag) * time.Millisecond
 
-	if cfg.ProxyPass == "" {
-		cfg.ProxyPass = cleanVal(os.Getenv("PROXY_PASSWORD"))
-	}
-	if cfg.ClientSecret == "" {
-		cfg.ClientSecret = cleanVal(os.Getenv("AZURE_CLIENT_SECRET"))
-	}
-
 	var missing []string
-	if cfg.ProxyPass == "" {
-		missing = append(missing, "-proxy-password or PROXY_PASSWORD")
+	for _, req := range []struct{ val, name string }{
+		{cfg.ProxyPass, "-proxy-password or PROXY_PASSWORD"},
+		{cfg.FabricHost, "-fabric-host or FABRIC_HOST"},
+		{cfg.FabricDB, "-fabric-database or FABRIC_DATABASE"},
+		{cfg.ClientID, "-client-id or AZURE_CLIENT_ID"},
+		{cfg.TenantID, "-tenant-id or AZURE_TENANT_ID"},
+		{cfg.ClientSecret, "-client-secret or AZURE_CLIENT_SECRET"},
+	} {
+		if req.val == "" {
+			missing = append(missing, req.name)
+		}
 	}
-	if cfg.FabricHost == "" {
-		missing = append(missing, "-fabric-host or FABRIC_HOST")
-	}
-	if cfg.FabricDB == "" {
-		missing = append(missing, "-fabric-database or FABRIC_DATABASE")
-	}
-	if cfg.ClientID == "" {
-		missing = append(missing, "-client-id or AZURE_CLIENT_ID")
-	}
-	if cfg.TenantID == "" {
-		missing = append(missing, "-tenant-id or AZURE_TENANT_ID")
-	}
-	if cfg.ClientSecret == "" {
-		missing = append(missing, "-client-secret or AZURE_CLIENT_SECRET")
-	}
-
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("missing required configuration parameters:\n  - %s", strings.Join(missing, "\n  - "))
 	}
@@ -354,44 +285,22 @@ func parseConfig() (*Config, error) {
 // Reflection Helpers to Extract Active TLS Transport from go-mssqldb
 // ---------------------------------------------------------------------
 
-func getUnexportedField(field reflect.Value) reflect.Value {
-	return reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
-}
-
 func extractTransport(driverConn driver.Conn) (io.ReadWriteCloser, error) {
 	val := reflect.ValueOf(driverConn)
-	if val.Kind() == reflect.Pointer {
-		val = val.Elem()
+	for _, name := range []string{"sess", "buf", "transport"} {
+		if val.Kind() == reflect.Pointer {
+			val = val.Elem()
+		}
+		field := val.FieldByName(name)
+		if !field.IsValid() {
+			return nil, fmt.Errorf("field %q not found", name)
+		}
+		val = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
 	}
-
-	sessField := val.FieldByName("sess")
-	if !sessField.IsValid() {
-		return nil, fmt.Errorf("field 'sess' not found in %T", driverConn)
-	}
-	sessVal := getUnexportedField(sessField)
-	if sessVal.Kind() == reflect.Pointer {
-		sessVal = sessVal.Elem()
-	}
-
-	bufField := sessVal.FieldByName("buf")
-	if !bufField.IsValid() {
-		return nil, fmt.Errorf("field 'buf' not found in sess")
-	}
-	bufVal := getUnexportedField(bufField)
-	if bufVal.Kind() == reflect.Pointer {
-		bufVal = bufVal.Elem()
-	}
-
-	transField := bufVal.FieldByName("transport")
-	if !transField.IsValid() {
-		return nil, fmt.Errorf("field 'transport' not found in buf")
-	}
-	transVal := getUnexportedField(transField)
-
-	if t, ok := transVal.Interface().(io.ReadWriteCloser); ok {
+	if t, ok := val.Interface().(io.ReadWriteCloser); ok {
 		return t, nil
 	}
-	return nil, fmt.Errorf("transport is not io.ReadWriteCloser: %T", transVal.Interface())
+	return nil, fmt.Errorf("transport is not io.ReadWriteCloser: %T", val.Interface())
 }
 
 // ---------------------------------------------------------------------
@@ -511,7 +420,7 @@ func (s *ProxyServer) Start() error {
 	for {
 		clientConn, err := s.listener.Accept()
 		if err != nil {
-			if strings.Contains(err.Error(), "use of closed network connection") {
+			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
 			s.logger.Error("", fmt.Sprintf("Accept error: %v", err))
@@ -652,7 +561,6 @@ type ClientLoginInfo struct {
 	Database  string
 	HostName  string
 	AppName   string
-	IsDebug   bool
 }
 
 func (s *ProxyServer) handleClient(clientConn net.Conn) {
@@ -687,6 +595,7 @@ func (s *ProxyServer) handleClient(clientConn net.Conn) {
 			s.logger.Error(clientAddr, fmt.Sprintf("TLS handshake failed: %v", err))
 			return
 		}
+		tlsHandshake.handshake = false
 		commConn = tlsConn
 	} else {
 		if err := sendPreloginResponse(clientConn, encryptNotSup); err != nil {
@@ -863,7 +772,7 @@ func (s *ProxyServer) handleClient(clientConn net.Conn) {
 					if !queryStart.IsZero() && currentQuery != "" {
 						dur := time.Since(queryStart)
 						isSlow := dur >= s.cfg.SlowQueryThreshold
-						s.logger.Query(clientAddr, currentQuery, dur, isSlow, sessionDebug)
+						s.logger.Query(clientAddr, currentQuery, dur, isSlow)
 						queryStart = time.Time{}
 						currentQuery = ""
 					}
@@ -960,39 +869,25 @@ func parseLogin7(payload []byte) (ClientLoginInfo, error) {
 		return info, fmt.Errorf("LOGIN7 payload too short (%d bytes)", len(payload))
 	}
 
-	hOffset := binary.LittleEndian.Uint16(payload[36:38])
-	hLen := binary.LittleEndian.Uint16(payload[38:40])
-	uOffset := binary.LittleEndian.Uint16(payload[40:42])
-	uLen := binary.LittleEndian.Uint16(payload[42:44])
-	pOffset := binary.LittleEndian.Uint16(payload[44:46])
-	pLen := binary.LittleEndian.Uint16(payload[46:48])
-	aOffset := binary.LittleEndian.Uint16(payload[48:50])
-	aLen := binary.LittleEndian.Uint16(payload[50:52])
-	dOffset := binary.LittleEndian.Uint16(payload[68:70])
-	dLen := binary.LittleEndian.Uint16(payload[70:72])
+	readField := func(pos int) []byte {
+		off := int(binary.LittleEndian.Uint16(payload[pos : pos+2]))
+		n := int(binary.LittleEndian.Uint16(payload[pos+2:pos+4])) * 2
+		if off+n <= len(payload) {
+			return payload[off : off+n]
+		}
+		return nil
+	}
 
-	if int(hOffset)+int(hLen)*2 <= len(payload) {
-		info.HostName = ucs22str(payload[hOffset : hOffset+hLen*2])
-	}
-	if int(uOffset)+int(uLen)*2 <= len(payload) {
-		info.RawUser = ucs22str(payload[uOffset : uOffset+uLen*2])
-	}
-	if int(pOffset)+int(pLen)*2 <= len(payload) {
-		info.Password = unmanglePassword(payload[pOffset : pOffset+pLen*2])
-	}
-	if int(aOffset)+int(aLen)*2 <= len(payload) {
-		info.AppName = ucs22str(payload[aOffset : aOffset+aLen*2])
-	}
-	if int(dOffset)+int(dLen)*2 <= len(payload) {
-		info.Database = ucs22str(payload[dOffset : dOffset+dLen*2])
-	}
+	info.HostName = ucs22str(readField(36))
+	info.RawUser = ucs22str(readField(40))
+	info.Password = unmanglePassword(readField(44))
+	info.AppName = ucs22str(readField(48))
+	info.Database = ucs22str(readField(68))
 
 	// Clean username: strip any #debug, ?debug=true, ;debug=true
 	info.CleanUser = info.RawUser
-	for _, sep := range []string{"#", "?", ";"} {
-		if idx := strings.Index(info.CleanUser, sep); idx != -1 {
-			info.CleanUser = info.CleanUser[:idx]
-		}
+	if idx := strings.IndexAny(info.CleanUser, "#?;"); idx != -1 {
+		info.CleanUser = info.CleanUser[:idx]
 	}
 
 	return info, nil
@@ -1003,7 +898,7 @@ func extractSQLFromBatch(payload []byte) string {
 		return ""
 	}
 	totalHeadersLen := binary.LittleEndian.Uint32(payload[0:4])
-	if int(totalHeadersLen) >= len(payload) {
+	if totalHeadersLen >= uint32(len(payload)) {
 		return ""
 	}
 	sqlBytes := payload[totalHeadersLen:]
@@ -1011,30 +906,42 @@ func extractSQLFromBatch(payload []byte) string {
 }
 
 type tdsHandshakeConn struct {
-	conn      net.Conn
+	net.Conn
 	readBuf   bytes.Buffer
-	writeBuf  bytes.Buffer
 	handshake bool
 }
 
 func newTdsHandshakeConn(c net.Conn) *tdsHandshakeConn {
-	return &tdsHandshakeConn{conn: c, handshake: true}
+	return &tdsHandshakeConn{Conn: c, handshake: true}
 }
 
 func (c *tdsHandshakeConn) Read(b []byte) (n int, err error) {
 	if !c.handshake {
-		return c.conn.Read(b)
+		return c.Conn.Read(b)
 	}
 	if c.readBuf.Len() > 0 {
 		return c.readBuf.Read(b)
 	}
 
-	pktType, _, payload, err := readTDSPacket(c.conn)
-	if err != nil {
+	header := make([]byte, 8)
+	if _, err := io.ReadFull(c.Conn, header); err != nil {
 		return 0, err
 	}
+
+	pktType := header[0]
+	pktLen := binary.BigEndian.Uint16(header[2:4])
+	if pktLen < 8 {
+		return 0, fmt.Errorf("invalid TDS packet length %d", pktLen)
+	}
+
+	payload := make([]byte, pktLen-8)
+	if _, err := io.ReadFull(c.Conn, payload); err != nil {
+		return 0, err
+	}
+
 	if pktType != packPrelogin && pktType != packReply {
 		c.handshake = false
+		c.readBuf.Write(header)
 		c.readBuf.Write(payload)
 		return c.readBuf.Read(b)
 	}
@@ -1044,20 +951,13 @@ func (c *tdsHandshakeConn) Read(b []byte) (n int, err error) {
 
 func (c *tdsHandshakeConn) Write(b []byte) (n int, err error) {
 	if !c.handshake {
-		return c.conn.Write(b)
+		return c.Conn.Write(b)
 	}
-	if err := writeTDSPacket(c.conn, packPrelogin, 0x01, b); err != nil {
+	if err := writeTDSPacket(c.Conn, packPrelogin, 0x01, b); err != nil {
 		return 0, err
 	}
 	return len(b), nil
 }
-
-func (c *tdsHandshakeConn) Close() error                       { return c.conn.Close() }
-func (c *tdsHandshakeConn) LocalAddr() net.Addr                { return c.conn.LocalAddr() }
-func (c *tdsHandshakeConn) RemoteAddr() net.Addr               { return c.conn.RemoteAddr() }
-func (c *tdsHandshakeConn) SetDeadline(t time.Time) error      { return c.conn.SetDeadline(t) }
-func (c *tdsHandshakeConn) SetReadDeadline(t time.Time) error  { return c.conn.SetReadDeadline(t) }
-func (c *tdsHandshakeConn) SetWriteDeadline(t time.Time) error { return c.conn.SetWriteDeadline(t) }
 
 func main() {
 	cfg, err := parseConfig()
