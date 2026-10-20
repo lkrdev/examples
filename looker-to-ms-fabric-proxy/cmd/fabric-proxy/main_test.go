@@ -56,7 +56,7 @@ func TestTDSProtocol(t *testing.T) {
 		t.Fatalf("expected empty on overflow header length, got %q", got)
 	}
 
-	// 4. tdsHandshakeConn preserves non-handshake packet header
+	// 4. tdsHandshakeConn preserves non-handshake packet header and drains readBuf when handshake=false
 	c1, c2 := net.Pipe()
 	defer c1.Close()
 	defer c2.Close()
@@ -64,9 +64,24 @@ func TestTDSProtocol(t *testing.T) {
 		_ = writeTDSPacket(c2, packLogin7, 0x01, []byte("ABCD"))
 	}()
 	hc := newTdsHandshakeConn(c1)
-	out := make([]byte, 12)
-	n, err := hc.Read(out)
-	if err != nil || n != 12 || out[0] != packLogin7 || string(out[8:12]) != "ABCD" || hc.handshake {
-		t.Fatalf("tdsHandshakeConn corrupted non-handshake packet: n=%d out=%x err=%v", n, out[:n], err)
+	first := make([]byte, 8)
+	n1, err := hc.Read(first)
+	if err != nil || n1 != 8 || first[0] != packLogin7 || hc.handshake {
+		t.Fatalf("tdsHandshakeConn first partial read failed: n=%d out=%x err=%v", n1, first[:n1], err)
+	}
+	second := make([]byte, 4)
+	n2, err := hc.Read(second)
+	if err != nil || n2 != 4 || string(second) != "ABCD" {
+		t.Fatalf("tdsHandshakeConn lost buffered payload after handshake=false: n=%d out=%q err=%v", n2, second[:n2], err)
+	}
+
+	// 5. writeTDSPacket rejects oversized payloads (> 65535 total length)
+	if err := writeTDSPacket(&bytes.Buffer{}, packReply, 0x01, make([]byte, 65530)); err == nil {
+		t.Fatal("expected writeTDSPacket overflow error for oversized payload")
+	}
+
+	// 6. validateDriverLayout confirms pinned go-mssqldb Conn internal transport path
+	if err := validateDriverLayout(); err != nil {
+		t.Fatalf("validateDriverLayout failed: %v", err)
 	}
 }

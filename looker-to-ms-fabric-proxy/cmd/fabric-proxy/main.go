@@ -11,12 +11,11 @@ import (
 	"crypto/x509/pkix"
 	"database/sql/driver"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"maps"
+	"log/slog"
 	"math/big"
 	"net"
 	"os"
@@ -31,6 +30,7 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	mssql "github.com/microsoft/go-mssqldb"
 	"github.com/microsoft/go-mssqldb/azuread"
 )
 
@@ -83,111 +83,94 @@ type Config struct {
 }
 
 // ---------------------------------------------------------------------
-// Structured Logger for GCE / Google Cloud Logging & Local Development
+// Structured Logger backed by stdlib log/slog (GCP Cloud Logging & CLI)
 // ---------------------------------------------------------------------
 
 type Logger struct {
+	s           *slog.Logger
 	isJSON      bool
 	globalDebug bool
-	mu          sync.Mutex
 }
 
 func NewLogger(format, level string) *Logger {
-	isJSON := strings.ToLower(format) == "json"
-	// Auto-detect GCP Cloud Logging environment (e.g. K_SERVICE or GCP metadata)
-	if format == "" && os.Getenv("K_SERVICE") != "" {
-		isJSON = true
+	isJSON := strings.EqualFold(format, "json") || (format == "" && os.Getenv("K_SERVICE") != "")
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if isJSON && a.Key == slog.LevelKey {
+				a.Key = "severity"
+			} else if isJSON && a.Key == slog.MessageKey {
+				a.Key = "message"
+			}
+			return a
+		},
 	}
-
+	var h slog.Handler = slog.NewTextHandler(os.Stdout, opts)
+	if isJSON {
+		h = slog.NewJSONHandler(os.Stdout, opts)
+	}
 	return &Logger{
+		s:           slog.New(h),
 		isJSON:      isJSON,
-		globalDebug: strings.ToLower(level) == "debug",
+		globalDebug: strings.EqualFold(level, "debug"),
 	}
 }
 
-func (l *Logger) logEntry(severity, client, msg string, extra ...map[string]any) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	now := time.Now().UTC()
-
-	if l.isJSON {
-		entry := map[string]any{
-			"time":     now.Format(time.RFC3339Nano),
-			"severity": severity,
-			"message":  msg,
-		}
-		if client != "" {
-			entry["client"] = client
-		}
-		if len(extra) > 0 {
-			maps.Copy(entry, extra[0])
-		}
-		data, _ := json.Marshal(entry)
-		fmt.Println(string(data))
-	} else {
-		// Human-readable format for CLI & systemd journal
-		timeStr := now.Format("2006-01-02 15:04:05")
-		clientPrefix := ""
-		if client != "" {
-			clientPrefix = fmt.Sprintf("[%s] ", client)
-		}
-		fmt.Printf("%s [%-5s] %s%s\n", timeStr, severity, clientPrefix, msg)
+func (l *Logger) logEntry(level slog.Level, client, msg string, extra ...map[string]any) {
+	var attrs []any
+	if client != "" {
+		attrs = append(attrs, "client", client)
 	}
+	if len(extra) > 0 {
+		for k, v := range extra[0] {
+			attrs = append(attrs, k, v)
+		}
+	}
+	l.s.Log(context.Background(), level, msg, attrs...)
 }
 
 func (l *Logger) Info(client, msg string, extra ...map[string]any) {
-	l.logEntry("INFO", client, msg, extra...)
+	l.logEntry(slog.LevelInfo, client, msg, extra...)
 }
 
 func (l *Logger) Warn(client, msg string, extra ...map[string]any) {
-	l.logEntry("WARNING", client, msg, extra...)
+	l.logEntry(slog.LevelWarn, client, msg, extra...)
 }
 
 func (l *Logger) Error(client, msg string, extra ...map[string]any) {
-	l.logEntry("ERROR", client, msg, extra...)
+	l.logEntry(slog.LevelError, client, msg, extra...)
 }
 
 func (l *Logger) Debug(client, msg string, sessionDebug bool, extra ...map[string]any) {
 	if l.globalDebug || sessionDebug {
-		l.logEntry("DEBUG", client, msg, extra...)
+		l.logEntry(slog.LevelDebug, client, msg, extra...)
 	}
 }
 
 func (l *Logger) Query(client, query string, dur time.Duration, isSlow bool) {
 	durMs := float64(dur.Microseconds()) / 1000.0
-
-	// Truncate query preview if very long for single-line display
-	preview := strings.ReplaceAll(query, "\n", " ")
-	preview = strings.TrimSpace(preview)
+	preview := strings.TrimSpace(strings.ReplaceAll(query, "\n", " "))
 	if len(preview) > 180 {
 		preview = preview[:180] + "..."
 	}
 
-	severity := "INFO"
+	level := slog.LevelInfo
+	msg := fmt.Sprintf("[QUERY %.1fms] %s", durMs, preview)
 	if isSlow {
-		severity = "WARNING"
+		level = slog.LevelWarn
+		msg = fmt.Sprintf("[SLOW %.1fms] %s", durMs, preview)
 	}
-
-	extra := map[string]any{
-		"query":       query,
-		"duration_ms": durMs,
-		"slow_query":  isSlow,
-	}
-
 	if l.isJSON {
-		msg := "Executed query"
+		msg = "Executed query"
 		if isSlow {
 			msg = fmt.Sprintf("Slow query detected (took %.2fms)", durMs)
 		}
-		l.logEntry(severity, client, msg, extra)
-	} else {
-		if isSlow {
-			l.logEntry("WARN", client, fmt.Sprintf("[SLOW %.1fms] %s", durMs, preview), extra)
-		} else {
-			l.logEntry("QUERY", client, fmt.Sprintf("[%.1fms] %s", durMs, preview), extra)
-		}
 	}
+	l.logEntry(level, client, msg, map[string]any{
+		"query":       query,
+		"duration_ms": durMs,
+		"slow_query":  isSlow,
+	})
 }
 
 // ---------------------------------------------------------------------
@@ -285,6 +268,28 @@ func parseConfig() (*Config, error) {
 // Reflection Helpers to Extract Active TLS Transport from go-mssqldb
 // ---------------------------------------------------------------------
 
+// validateDriverLayout verifies at startup/test time that the pinned go-mssqldb
+// driver.Conn struct still exposes the expected sess -> buf -> transport path.
+func validateDriverLayout() error {
+	t := reflect.TypeFor[mssql.Conn]()
+	for _, name := range []string{"sess", "buf", "transport"} {
+		if t.Kind() == reflect.Pointer {
+			t = t.Elem()
+		}
+		f, ok := t.FieldByName(name)
+		if !ok {
+			return fmt.Errorf("go-mssqldb layout changed: field %q missing on %s", name, t)
+		}
+		t = f.Type
+	}
+	rwc := reflect.TypeFor[io.ReadWriteCloser]()
+	if !t.Implements(rwc) {
+		return fmt.Errorf("go-mssqldb transport field %s does not implement io.ReadWriteCloser", t)
+	}
+	return nil
+}
+
+// ponytail: reflection over unexported go-mssqldb fields (ceiling: breaks if go-mssqldb renames sess/buf/transport; guarded by validateDriverLayout() at startup/tests, upgrade to forked/custom TDS FEDAUTH dialer if driver internals change).
 func extractTransport(driverConn driver.Conn) (io.ReadWriteCloser, error) {
 	val := reflect.ValueOf(driverConn)
 	for _, name := range []string{"sess", "buf", "transport"} {
@@ -384,6 +389,9 @@ type ProxyServer struct {
 }
 
 func NewProxyServer(cfg *Config) (*ProxyServer, error) {
+	if err := validateDriverLayout(); err != nil {
+		return nil, err
+	}
 	tlsCfg, err := generateTLSConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate TLS certificate: %w", err)
@@ -480,6 +488,9 @@ func readTDSPacket(r io.Reader) (byte, byte, []byte, error) {
 
 func writeTDSPacket(w io.Writer, pktType byte, status byte, payload []byte) error {
 	totalLen := 8 + len(payload)
+	if totalLen > 65535 {
+		return fmt.Errorf("payload too large for TDS packet: %d bytes", len(payload))
+	}
 	header := make([]byte, 8)
 	header[0] = pktType
 	header[1] = status
@@ -718,28 +729,41 @@ func (s *ProxyServer) handleClient(clientConn net.Conn) {
 	// Pump: Client -> Fabric DW
 	go func() {
 		buf := make([]byte, 32768)
+		var rawStream, batchBuf bytes.Buffer
 		for {
 			n, err := commConn.Read(buf)
 			if n > 0 {
 				atomic.AddUint64(&bytesRx, uint64(n))
 
-				pktType := buf[0]
-				pktStatus := buf[1]
-
-				if pktType == packSQLBatch && n > 8 {
-					sqlText := extractSQLFromBatch(buf[8:n])
-					if sqlText != "" {
-						queryMu.Lock()
-						currentQuery = sqlText
+				// Reassemble TDS frames across fragmented or coalesced TCP reads for accurate query logging.
+				rawStream.Write(buf[:n])
+				for rawStream.Len() >= 8 {
+					hdr := rawStream.Bytes()[:8]
+					pktType, pktStatus := hdr[0], hdr[1]
+					pktLen := int(binary.BigEndian.Uint16(hdr[2:4]))
+					if pktLen < 8 {
+						rawStream.Reset()
+						break
+					}
+					if rawStream.Len() < pktLen {
+						break
+					}
+					frame := rawStream.Next(pktLen)
+					s.logger.Debug(clientAddr, fmt.Sprintf("TDS tx -> Fabric: type=0x%02x status=0x%02x len=%d", pktType, pktStatus, pktLen), sessionDebug)
+					if pktType == packSQLBatch {
+						batchBuf.Write(frame[8:])
 						if pktStatus&0x01 != 0 { // EOM
-							queryStart = time.Now()
-							atomic.AddUint64(&queryCount, 1)
+							if sqlText := extractSQLFromBatch(batchBuf.Bytes()); sqlText != "" {
+								queryMu.Lock()
+								currentQuery = sqlText
+								queryStart = time.Now()
+								atomic.AddUint64(&queryCount, 1)
+								queryMu.Unlock()
+							}
+							batchBuf.Reset()
 						}
-						queryMu.Unlock()
 					}
 				}
-
-				s.logger.Debug(clientAddr, fmt.Sprintf("TDS tx -> Fabric: type=0x%02x status=0x%02x len=%d", pktType, pktStatus, n), sessionDebug)
 
 				if _, werr := fabricTransport.Write(buf[:n]); werr != nil {
 					errc <- werr
@@ -916,11 +940,11 @@ func newTdsHandshakeConn(c net.Conn) *tdsHandshakeConn {
 }
 
 func (c *tdsHandshakeConn) Read(b []byte) (n int, err error) {
-	if !c.handshake {
-		return c.Conn.Read(b)
-	}
 	if c.readBuf.Len() > 0 {
 		return c.readBuf.Read(b)
+	}
+	if !c.handshake {
+		return c.Conn.Read(b)
 	}
 
 	header := make([]byte, 8)
